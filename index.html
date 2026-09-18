@@ -10,22 +10,24 @@
   Apps Script backend (see Code.gs) which stores everything in a Google
   Sheet and sends confirmation emails.
 
-  HOW TO CONFIGURE THIS FILE (only 2 things to edit, see "CONFIG" below):
-    1. APPS_SCRIPT_URL — the URL you get after deploying Code.gs as a
-       Web App (see DEPLOYMENT_GUIDE.md).
-    2. SHEET_ID — the ID of the Google Sheet you want this form to save
-       into. You can change this any time without touching Code.gs —
-       that's the whole point of keeping it here instead of hard-coding
-       it in the backend.
+  HOW TO CONFIGURE THIS FILE (only 1 thing to edit, see "CONFIG" below):
+    SHEET_ID — the ID of the Google Sheet this form saves into. That's
+    the only value hard-coded here. The Apps Script Web App URL is
+    NOT stored in this file — it's read automatically, every time the
+    page loads, from cell A1 of the "Configs" tab in that Sheet. This
+    means that if you ever redeploy the backend and get a new Web App
+    URL, you only need to update one cell in the Sheet — never this
+    file. See DEPLOYMENT_GUIDE.md for the full setup walkthrough.
 
   HOW THE CODE IS ORGANISED (search for these markers):
-    [1] CONFIG            — the two settings above
+    [1] CONFIG            — the one setting above
     [2] i18n STRINGS       — all fixed interface text, in 3 languages
     [3] FORM SCHEMA        — every question, its type, and its labels/
                               options in 3 languages. Add/remove/reorder
                               questions by editing this array only.
     [4] APP STATE          — variables that track where the user is
-    [5] API HELPERS        — functions that talk to Google Apps Script
+    [5] API HELPERS        — functions that talk to Google Apps Script,
+                              plus the remote-config loader described above
     [6] RENDER ENGINE       — turns the schema into on-screen HTML
     [7] VALIDATION          — required-field checks per step
     [8] NAVIGATION          — next / back / save-draft / submit
@@ -217,6 +219,9 @@ input:focus, textarea:focus, select:focus{
 /* ---------- Success / locked screens ---------- */
 .center-screen{text-align:center; max-width:520px; margin:60px auto;}
 .big-icon{font-size:52px; margin-bottom:10px;}
+.logo img{width:100%; height:100%; object-fit:contain; display:block; border-radius:7px;}
+.logo.has-image{background:transparent;}
+.program-logo-img{max-width:260px; width:70%; height:auto; margin:0 auto 14px; display:none;}
 
 /* ---------- Loading overlay ---------- */
 #loadingOverlay{
@@ -247,7 +252,10 @@ input:focus, textarea:focus, select:focus{
 <div class="topbar">
   <div class="topbar-inner">
     <div class="brand">
-      <div class="logo">WM</div>
+      <div class="logo" id="companyLogoWrap">
+        <span id="companyLogoFallback">WM</span>
+        <img id="companyLogoImg" alt="Company logo" style="display:none;">
+      </div>
       <div>
         <div class="brand-name">Fin for Good</div>
         <div class="brand-sub" data-i18n="brandSub">Wan Mai - New Day Co., Ltd.</div>
@@ -268,7 +276,8 @@ input:focus, textarea:focus, select:focus{
 <!-- ===================== AUTH: WELCOME / CHOOSE ===================== -->
 <div id="screenWelcome" class="wrap">
   <div class="card auth-card" style="text-align:center;">
-    <div class="big-icon">🤝</div>
+    <img id="programLogoImg" class="program-logo-img" alt="Fin for Good">
+    <div class="big-icon" id="programLogoFallback">🤝</div>
     <h1 data-i18n="welcomeTitle">Fin for Good — Application Form</h1>
     <p data-i18n="welcomeDesc">A support programme for community-led enterprises, social enterprises and local small businesses — bookkeeping, financial planning, training and small business grants.</p>
     <div style="display:flex; flex-direction:column; gap:10px; margin-top:18px;">
@@ -410,17 +419,20 @@ input:focus, textarea:focus, select:focus{
 
 <script>
 /* ============================================================================
-   [1] CONFIG — edit these two lines after you deploy the backend.
+   [1] CONFIG — the one thing to set here.
    ============================================================================ */
 const CONFIG = {
-  // Paste the Web App URL you get from Apps Script > Deploy > New deployment.
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzwf2Dkt2flx1Kp0uKud4tZwacova0jXfvW-tC7Lgo3Pz4M38PywudZEyZ-VCakXKIDRA/exec",
+  // The ID of the Google Sheet this form saves into (the long string in
+  // the Sheet's URL between /d/ and /edit). This is the only value
+  // hard-coded in this file.
+  SHEET_ID: "1PyHglCT3ldABUcXbVImXtawfXk4FKzQuTwfBfDy5XSI",
 
-  // Paste the ID of the Google Sheet you want this form to save into.
-  // (The long string in the Sheet's URL between /d/ and /edit)
-  // Change this any time to point the form at a different sheet —
-  // no need to touch the backend script.
-  SHEET_ID: "1PyHglCT3ldABUcXbVImXtawfXk4FKzQuTwfBfDy5XSI"
+  // NOT set here on purpose. The Apps Script Web App URL is read
+  // automatically at page-load time from cell A1 of the "Configs" tab
+  // in the Sheet above — see loadRemoteConfig() in section [5] below.
+  // This way, redeploying the backend (which gives you a new Web App
+  // URL) only ever requires updating one Sheet cell, never this file.
+  APPS_SCRIPT_URL: ""
 };
 
 /* ============================================================================
@@ -979,7 +991,7 @@ function hideLoading(){
 }
 
 async function api(action, payload){
-  if(!CONFIG.APPS_SCRIPT_URL || CONFIG.APPS_SCRIPT_URL.indexOf("PUT_YOUR") === 0){
+  if(!CONFIG.APPS_SCRIPT_URL){
     throw new Error(T("errNotConfigured"));
   }
   const body = Object.assign({action, sheetId: CONFIG.SHEET_ID}, payload || {});
@@ -994,6 +1006,98 @@ async function api(action, payload){
   }
   return data;
 }
+
+/* ----------------------------------------------------------------------
+   REMOTE CONFIG LOADER — reads the "Configs" tab of the Google Sheet
+   DIRECTLY (not through Apps Script), using Google's public "gviz" read
+   endpoint. This is what lets APPS_SCRIPT_URL live in the Sheet instead
+   of this file: since it's the Apps Script URL itself we still need to
+   discover, we can't ask Apps Script for it — so this one read has to
+   bypass Apps Script and talk to Google Sheets directly.
+
+   Requirement: the Google Sheet must be shared as "Anyone with the link
+   can view" (Share > General access) for this to work for visitors who
+   aren't logged into the same Google account that owns the Sheet. This
+   is a read-only public link — it does not let anyone edit the Sheet.
+
+   Reads:
+     Configs!A1  → the Apps Script Web App URL
+     Configs!B3  → COMPANY_LOGO (a Google Drive share link)
+     Configs!B4  → PROGRAM_LOGO (a Google Drive share link)
+   ---------------------------------------------------------------------- */
+async function loadRemoteConfig(){
+  const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:json&sheet=Configs`;
+  const res = await fetch(url);
+  if(!res.ok){
+    throw new Error("Could not read the Configs sheet (HTTP " + res.status + "). Make sure the Google Sheet is shared as \"Anyone with the link can view.\"");
+  }
+  const text = await res.text();
+  // The gviz endpoint wraps its JSON in a JS function call, e.g.
+  // "/*O_o*/\ngoogle.visualization.Query.setResponse({...});" — pull out
+  // just the {...} part.
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if(start === -1 || end === -1){
+    throw new Error("Unexpected response while reading the Configs sheet. Is the \"Configs\" tab present and the Sheet publicly viewable?");
+  }
+  const parsed = JSON.parse(text.substring(start, end + 1));
+  const rows = (parsed.table && parsed.table.rows) || [];
+  const cell = (rowIdx, colIdx)=>{
+    const row = rows[rowIdx];
+    if(!row || !row.c || !row.c[colIdx] || row.c[colIdx].v == null) return "";
+    return String(row.c[colIdx].v).trim();
+  };
+  return {
+    appsScriptUrl: cell(0, 0), // A1
+    companyLogoRaw: cell(2, 1), // B3
+    programLogoRaw: cell(3, 1)  // B4
+  };
+}
+
+/** Converts a Google Drive "share link" (e.g.
+ * https://drive.google.com/file/d/FILE_ID/view?usp=sharing) into a URL
+ * that works as an <img src="...">. The Drive file itself must also be
+ * shared as "Anyone with the link can view." Returns "" if no file ID
+ * can be found, so callers can fall back to a default icon gracefully. */
+function driveImageUrl(shareLinkOrId, widthPx){
+  if(!shareLinkOrId) return "";
+  const id = extractDriveFileId(shareLinkOrId);
+  if(!id) return "";
+  return `https://drive.google.com/thumbnail?id=${id}&sz=w${widthPx || 400}`;
+}
+function extractDriveFileId(text){
+  if(/^[a-zA-Z0-9_-]{15,}$/.test(text)) return text; // already a bare file ID
+  let m = text.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if(m) return m[1];
+  m = text.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if(m) return m[1];
+  return "";
+}
+
+/** Applies the two logos (if configured) to the header and welcome
+ * screen, falling back to the built-in icons on any failure. */
+function applyLogos(companyLogoRaw, programLogoRaw){
+  const companyUrl = driveImageUrl(companyLogoRaw, 200);
+  if(companyUrl){
+    const img = document.getElementById("companyLogoImg");
+    img.onload = ()=>{
+      img.style.display = "block";
+      document.getElementById("companyLogoFallback").style.display = "none";
+      document.getElementById("companyLogoWrap").classList.add("has-image");
+    };
+    img.src = companyUrl;
+  }
+  const programUrl = driveImageUrl(programLogoRaw, 700);
+  if(programUrl){
+    const img = document.getElementById("programLogoImg");
+    img.onload = ()=>{
+      img.style.display = "block";
+      document.getElementById("programLogoFallback").style.display = "none";
+    };
+    img.src = programUrl;
+  }
+}
+
 
 /* ============================================================================
    [6] RENDER ENGINE — turns FORM_SCHEMA into on-screen HTML, and reads
@@ -1617,18 +1721,43 @@ document.querySelectorAll(".lang-switch button").forEach(btn=>{
 });
 
 /* ============================================================================
-   [10] BOOTSTRAP — runs once when the page loads. Tries to resume a saved
-   session automatically; otherwise shows the welcome screen.
+   [10] BOOTSTRAP — runs once when the page loads. First discovers the
+   Apps Script URL and logos from the Configs sheet (see loadRemoteConfig
+   in section [5]), then tries to resume a saved session automatically;
+   otherwise shows the welcome screen.
    ============================================================================ */
 (async function bootstrap(){
   applyStaticTranslations();
+  showLoading();
+
+  try{
+    const cfg = await loadRemoteConfig();
+    if(!cfg.appsScriptUrl){
+      throw new Error("Cell A1 of the \"Configs\" tab is empty. Paste your Apps Script Web App URL there (see DEPLOYMENT_GUIDE.md).");
+    }
+    CONFIG.APPS_SCRIPT_URL = cfg.appsScriptUrl;
+    applyLogos(cfg.companyLogoRaw, cfg.programLogoRaw);
+  }catch(err){
+    // Nothing else in the app can work without the Apps Script URL, so
+    // stop here and show a clear, actionable message instead of letting
+    // every subsequent action fail with a confusing network error.
+    hideLoading();
+    document.getElementById("screenWelcome").classList.remove("hidden");
+    document.querySelector("#screenWelcome .auth-card").insertAdjacentHTML("afterbegin",
+      `<div class="alert alert-error" style="text-align:left;">
+         <strong>Setup needed:</strong> ${escapeHtml(err.message)}
+       </div>`);
+    document.getElementById("goRegister").disabled = true;
+    document.getElementById("goLogin").disabled = true;
+    return;
+  }
+
   const saved = loadSession();
   if(saved && saved.token){
     state.user = { token: saved.token, email: saved.email, name: saved.name };
     state.applicationId = saved.applicationId;
     updateUserChip();
     try{
-      showLoading();
       const check = await api("checkSession", {});
       state.user.name = check.name; state.user.email = check.email;
       updateUserChip();
@@ -1643,6 +1772,7 @@ document.querySelectorAll(".lang-switch button").forEach(btn=>{
       hideLoading();
     }
   } else {
+    hideLoading();
     showScreen("Welcome");
   }
 })();

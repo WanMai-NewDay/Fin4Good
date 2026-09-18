@@ -1,0 +1,1651 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  Fin for Good — Application Form
+  Wan Mai - New Day Co., Ltd. (บริษัท วันใหม่ - วันใหม่ จำกัด)
+  ============================================================================
+  WHAT THIS FILE IS
+  A single, self-contained HTML page that renders a trilingual (Thai /
+  English / Burmese) multi-step application form. It talks to a Google
+  Apps Script backend (see Code.gs) which stores everything in a Google
+  Sheet and sends confirmation emails.
+
+  HOW TO CONFIGURE THIS FILE (only 2 things to edit, see "CONFIG" below):
+    1. APPS_SCRIPT_URL — the URL you get after deploying Code.gs as a
+       Web App (see DEPLOYMENT_GUIDE.md).
+    2. SHEET_ID — the ID of the Google Sheet you want this form to save
+       into. You can change this any time without touching Code.gs —
+       that's the whole point of keeping it here instead of hard-coding
+       it in the backend.
+
+  HOW THE CODE IS ORGANISED (search for these markers):
+    [1] CONFIG            — the two settings above
+    [2] i18n STRINGS       — all fixed interface text, in 3 languages
+    [3] FORM SCHEMA        — every question, its type, and its labels/
+                              options in 3 languages. Add/remove/reorder
+                              questions by editing this array only.
+    [4] APP STATE          — variables that track where the user is
+    [5] API HELPERS        — functions that talk to Google Apps Script
+    [6] RENDER ENGINE       — turns the schema into on-screen HTML
+    [7] VALIDATION          — required-field checks per step
+    [8] NAVIGATION          — next / back / save-draft / submit
+    [9] AUTH SCREENS        — register / log in / resume draft
+    [10] BOOTSTRAP          — code that runs when the page loads
+  ============================================================================
+-->
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fin for Good — Application Form | แบบฟอร์มสมัคร | လျှောက်လွှာပုံစံ</title>
+
+<!-- Fonts: Noto Sans covers Latin, Thai and Myanmar scripts cleanly in one family -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&family=Noto+Sans+Thai:wght@400;600;700&family=Noto+Sans+Myanmar:wght@400;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   DESIGN SYSTEM — CSS variables so colors/spacing are easy to
+   tweak in one place without hunting through the whole file.
+   ============================================================ */
+:root{
+  --brand:#0d7a5f;          /* Wan Mai green */
+  --brand-dark:#095c46;
+  --brand-light:#e6f4f0;
+  --accent:#e08e23;         /* warm accent for highlights / required marks */
+  --ink:#1f2937;
+  --ink-soft:#5b6472;
+  --border:#dbe2e6;
+  --bg:#f6f8f7;
+  --card:#ffffff;
+  --danger:#c0392b;
+  --danger-bg:#fdecea;
+  --success:#1f8a4c;
+  --radius:12px;
+  --shadow:0 2px 10px rgba(15,40,30,0.06);
+  --shadow-lg:0 8px 30px rgba(15,40,30,0.12);
+  --maxw:820px;
+  font-size:16px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  font-family:"Noto Sans","Noto Sans Thai","Noto Sans Myanmar",system-ui,sans-serif;
+  background:var(--bg);
+  color:var(--ink);
+  line-height:1.6;
+  padding-bottom:60px;
+}
+h1,h2,h3{line-height:1.35; margin:0 0 .4em 0;}
+p{margin:0 0 .8em 0;}
+a{color:var(--brand);}
+.hidden{display:none !important;}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);}
+
+/* ---------- Top bar ---------- */
+.topbar{
+  background:var(--card);
+  border-bottom:1px solid var(--border);
+  position:sticky; top:0; z-index:30;
+}
+.topbar-inner{
+  max-width:var(--maxw); margin:0 auto; padding:12px 16px;
+  display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+}
+.brand{display:flex; align-items:center; gap:10px;}
+.brand .logo{
+  width:38px; height:38px; border-radius:9px; background:var(--brand);
+  color:#fff; display:flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:16px; flex:none;
+}
+.brand-name{font-weight:700; font-size:15px; color:var(--brand-dark);}
+.brand-sub{font-size:12px; color:var(--ink-soft);}
+
+.lang-switch{display:flex; gap:6px; background:var(--brand-light); padding:4px; border-radius:999px;}
+.lang-switch button{
+  border:none; background:transparent; padding:6px 12px; border-radius:999px;
+  font-size:13px; font-weight:600; color:var(--brand-dark); cursor:pointer;
+}
+.lang-switch button.active{background:var(--brand); color:#fff;}
+
+/* ---------- Layout wrapper ---------- */
+.wrap{max-width:var(--maxw); margin:0 auto; padding:20px 16px 90px;}
+.card{
+  background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+  box-shadow:var(--shadow); padding:24px; margin-bottom:16px;
+}
+
+/* ---------- Progress ---------- */
+.progress-wrap{max-width:var(--maxw); margin:0 auto; padding:10px 16px 0;}
+.progress-label{font-size:13px; color:var(--ink-soft); margin-bottom:6px; display:flex; justify-content:space-between;}
+.progress-track{height:8px; background:var(--brand-light); border-radius:999px; overflow:hidden;}
+.progress-fill{height:100%; background:var(--brand); border-radius:999px; transition:width .25s ease;}
+.step-title{font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--brand); font-weight:700; margin-bottom:4px;}
+.step-heading{font-size:22px; font-weight:700; color:var(--ink);}
+.step-desc{color:var(--ink-soft); font-size:14px; margin-top:4px;}
+
+/* ---------- Fields ---------- */
+.field{margin-bottom:20px;}
+.field label.field-label{display:block; font-weight:600; margin-bottom:6px; font-size:15px;}
+.field .hint{font-size:13px; color:var(--ink-soft); margin-top:4px;}
+.required-mark{color:var(--accent); margin-left:3px;}
+input[type=text], input[type=email], input[type=number], input[type=password],
+input[type=tel], input[type=date], textarea, select{
+  width:100%; padding:11px 13px; border:1px solid var(--border); border-radius:9px;
+  font-size:15px; font-family:inherit; background:#fff; color:var(--ink);
+}
+textarea{min-height:90px; resize:vertical;}
+input:focus, textarea:focus, select:focus{
+  outline:none; border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-light);
+}
+.field.error input, .field.error textarea, .field.error select{border-color:var(--danger);}
+.field-error-msg{color:var(--danger); font-size:13px; margin-top:5px; display:none;}
+.field.error .field-error-msg{display:block;}
+
+.option-list{display:flex; flex-direction:column; gap:8px;}
+.option-item{
+  display:flex; align-items:flex-start; gap:10px; padding:10px 12px;
+  border:1px solid var(--border); border-radius:9px; cursor:pointer; background:#fff;
+}
+.option-item:hover{border-color:var(--brand);}
+.option-item input{width:auto; margin-top:3px; flex:none;}
+.option-item span{font-size:14.5px;}
+.other-input{margin-top:8px;}
+
+.two-col{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+.three-col{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;}
+@media (max-width:600px){ .two-col,.three-col{grid-template-columns:1fr;} }
+
+/* dynamic table rows (products, budget lines) */
+.dyn-table{width:100%; border-collapse:collapse; margin-bottom:10px;}
+.dyn-table th{font-size:12px; text-align:left; color:var(--ink-soft); padding:4px 6px; font-weight:600;}
+.dyn-table td{padding:4px 6px; vertical-align:top;}
+.dyn-table input{padding:8px 10px; font-size:14px;}
+.row-remove{background:none; border:none; color:var(--danger); font-size:18px; cursor:pointer; padding:4px 8px;}
+.add-row-btn{
+  background:var(--brand-light); color:var(--brand-dark); border:1px dashed var(--brand);
+  padding:8px 14px; border-radius:8px; font-size:13.5px; font-weight:600; cursor:pointer;
+}
+.dyn-total{font-weight:700; text-align:right; padding-top:6px; font-size:14px;}
+
+/* ---------- Buttons ---------- */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  padding:12px 22px; border-radius:9px; font-size:15px; font-weight:700;
+  cursor:pointer; border:1px solid transparent; text-decoration:none;
+}
+.btn-primary{background:var(--brand); color:#fff;}
+.btn-primary:hover{background:var(--brand-dark);}
+.btn-secondary{background:#fff; color:var(--brand-dark); border-color:var(--brand);}
+.btn-secondary:hover{background:var(--brand-light);}
+.btn-ghost{background:transparent; color:var(--ink-soft); border-color:var(--border);}
+.btn-danger{background:var(--danger); color:#fff;}
+.btn:disabled{opacity:.55; cursor:not-allowed;}
+.btn-block{width:100%;}
+.btn-sm{padding:8px 14px; font-size:13.5px;}
+
+/* ---------- Nav bar (fixed bottom on form steps) ---------- */
+.nav-bar{
+  position:sticky; bottom:0; background:var(--card); border-top:1px solid var(--border);
+  padding:14px 16px; display:flex; justify-content:space-between; align-items:center; gap:10px;
+  box-shadow:0 -4px 16px rgba(0,0,0,0.04); z-index:20;
+}
+.nav-bar-inner{max-width:var(--maxw); margin:0 auto; width:100%; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;}
+.save-status{font-size:12.5px; color:var(--ink-soft); display:flex; align-items:center; gap:6px;}
+.save-status .dot{width:7px; height:7px; border-radius:50%; background:var(--success); flex:none;}
+
+/* ---------- Auth screens ---------- */
+.auth-card{max-width:460px; margin:40px auto;}
+.auth-toggle{display:flex; gap:6px; margin-bottom:18px; background:var(--brand-light); padding:4px; border-radius:10px;}
+.auth-toggle button{flex:1; padding:9px; border:none; background:transparent; border-radius:8px; font-weight:700; cursor:pointer; color:var(--brand-dark);}
+.auth-toggle button.active{background:var(--brand); color:#fff;}
+.alert{padding:12px 14px; border-radius:9px; font-size:14px; margin-bottom:14px;}
+.alert-error{background:var(--danger-bg); color:var(--danger);}
+.alert-success{background:var(--brand-light); color:var(--brand-dark);}
+.alert-info{background:#eef4fb; color:#2b5a8a;}
+
+/* ---------- Review screen ---------- */
+.review-section{margin-bottom:18px; border:1px solid var(--border); border-radius:10px; overflow:hidden;}
+.review-section h3{background:var(--brand-light); color:var(--brand-dark); padding:10px 14px; font-size:14.5px;}
+.review-row{display:flex; padding:8px 14px; border-top:1px solid var(--border); font-size:14px; gap:14px;}
+.review-row:first-of-type{border-top:none;}
+.review-row .rlabel{flex:0 0 45%; color:var(--ink-soft);}
+.review-row .rvalue{flex:1; font-weight:600; word-break:break-word;}
+.edit-link{font-size:12.5px; float:right; cursor:pointer; color:var(--brand); font-weight:600;}
+
+/* ---------- Success / locked screens ---------- */
+.center-screen{text-align:center; max-width:520px; margin:60px auto;}
+.big-icon{font-size:52px; margin-bottom:10px;}
+
+/* ---------- Loading overlay ---------- */
+#loadingOverlay{
+  position:fixed; inset:0; background:rgba(246,248,247,0.85); z-index:100;
+  display:flex; align-items:center; justify-content:center; flex-direction:column; gap:10px;
+}
+.spinner{width:34px; height:34px; border:4px solid var(--brand-light); border-top-color:var(--brand); border-radius:50%; animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* Step tracker dots (mobile-friendly mini overview) */
+.parts-overview{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 18px;}
+.part-dot{
+  font-size:11px; padding:4px 8px; border-radius:999px; background:var(--brand-light); color:var(--brand-dark);
+}
+.part-dot.current{background:var(--brand); color:#fff; font-weight:700;}
+.part-dot.done{background:var(--brand-dark); color:#fff;}
+</style>
+</head>
+<body>
+
+<!-- Loading overlay, shown during any server call -->
+<div id="loadingOverlay" class="hidden">
+  <div class="spinner"></div>
+  <div id="loadingText" style="font-size:14px;color:var(--ink-soft);">…</div>
+</div>
+
+<!-- ===================== TOP BAR ===================== -->
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="logo">WM</div>
+      <div>
+        <div class="brand-name">Fin for Good</div>
+        <div class="brand-sub" data-i18n="brandSub">Wan Mai - New Day Co., Ltd.</div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <div id="userChip" class="hidden" style="font-size:13px; color:var(--ink-soft);"></div>
+      <div class="lang-switch" role="group" aria-label="Language">
+        <button type="button" data-lang="th">ไทย</button>
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="my">မြန်မာ</button>
+      </div>
+      <button type="button" id="logoutBtn" class="btn btn-ghost btn-sm hidden" data-i18n="logout">Log out</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== AUTH: WELCOME / CHOOSE ===================== -->
+<div id="screenWelcome" class="wrap">
+  <div class="card auth-card" style="text-align:center;">
+    <div class="big-icon">🤝</div>
+    <h1 data-i18n="welcomeTitle">Fin for Good — Application Form</h1>
+    <p data-i18n="welcomeDesc">A support programme for community-led enterprises, social enterprises and local small businesses — bookkeeping, financial planning, training and small business grants.</p>
+    <div style="display:flex; flex-direction:column; gap:10px; margin-top:18px;">
+      <button type="button" class="btn btn-primary btn-block" id="goRegister" data-i18n="btnCreateAccount">Create an account to start</button>
+      <button type="button" class="btn btn-secondary btn-block" id="goLogin" data-i18n="btnLogin">I already have an account — Log in</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== AUTH: REGISTER ===================== -->
+<div id="screenRegister" class="wrap hidden">
+  <div class="card auth-card">
+    <h2 data-i18n="registerTitle">Create your account</h2>
+    <p class="step-desc" data-i18n="registerDesc">Create an account so you can save your progress and come back to finish later. You only need to fill this in once.</p>
+    <div id="registerAlert"></div>
+    <div class="field">
+      <label class="field-label" data-i18n="fName">Full name<span class="required-mark">*</span></label>
+      <input type="text" id="regName">
+    </div>
+    <div class="field">
+      <label class="field-label" data-i18n="fEmail">Email address<span class="required-mark">*</span></label>
+      <input type="email" id="regEmail">
+      <div class="hint" data-i18n="fEmailHint">We'll send your confirmation and updates to this address.</div>
+    </div>
+    <div class="field">
+      <label class="field-label" data-i18n="fPassword">Password<span class="required-mark">*</span></label>
+      <input type="password" id="regPassword">
+      <div class="hint" data-i18n="fPasswordHint">At least 6 characters.</div>
+    </div>
+    <button type="button" class="btn btn-primary btn-block" id="submitRegister" data-i18n="btnCreateAccount2">Create account &amp; start application</button>
+    <p style="text-align:center;margin-top:14px;font-size:13.5px;">
+      <span data-i18n="haveAccount">Already have an account?</span>
+      <a href="#" id="linkGoLogin" data-i18n="btnLoginShort">Log in</a>
+    </p>
+  </div>
+</div>
+
+<!-- ===================== AUTH: LOGIN ===================== -->
+<div id="screenLogin" class="wrap hidden">
+  <div class="card auth-card">
+    <h2 data-i18n="loginTitle">Log in</h2>
+    <p class="step-desc" data-i18n="loginDesc">Log in to continue your saved draft, or to view your submitted application.</p>
+    <div id="loginAlert"></div>
+    <div class="field">
+      <label class="field-label" data-i18n="fEmail">Email address<span class="required-mark">*</span></label>
+      <input type="email" id="loginEmail">
+    </div>
+    <div class="field">
+      <label class="field-label" data-i18n="fPassword">Password<span class="required-mark">*</span></label>
+      <input type="password" id="loginPassword">
+    </div>
+    <button type="button" class="btn btn-primary btn-block" id="submitLogin" data-i18n="btnLogin2">Log in</button>
+    <p style="text-align:center;margin-top:14px;font-size:13.5px;">
+      <span data-i18n="noAccount">Don't have an account yet?</span>
+      <a href="#" id="linkGoRegister" data-i18n="btnCreateAccountShort">Create one</a>
+    </p>
+  </div>
+</div>
+
+<!-- ===================== FORM: PROGRESS + STEP ===================== -->
+<div id="screenForm" class="hidden">
+  <div class="progress-wrap">
+    <div class="progress-label">
+      <span id="progressStepLabel"></span>
+      <span id="progressPercentLabel"></span>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="step-title" id="stepPartLabel"></div>
+      <div class="step-heading" id="stepHeading"></div>
+      <div class="step-desc" id="stepDesc"></div>
+      <div id="alertBox"></div>
+      <form id="stepForm" autocomplete="off">
+        <div id="fieldsContainer"></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="nav-bar">
+    <div class="nav-bar-inner">
+      <button type="button" class="btn btn-ghost" id="btnBack" data-i18n="btnBack">Back</button>
+      <div class="save-status" id="saveStatus"><span class="dot"></span><span id="saveStatusText" data-i18n="savedAuto">Saved</span></div>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn btn-secondary" id="btnSaveExit" data-i18n="btnSaveExit">Save &amp; continue later</button>
+        <button type="button" class="btn btn-primary" id="btnNext" data-i18n="btnNext">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== REVIEW SCREEN ===================== -->
+<div id="screenReview" class="wrap hidden">
+  <div class="card">
+    <h2 data-i18n="reviewTitle">Review your application</h2>
+    <p class="step-desc" data-i18n="reviewDesc">Please check your answers carefully. Once you submit, you will not be able to edit this application.</p>
+    <div id="reviewContent"></div>
+    <div class="field" style="margin-top:10px;">
+      <label class="option-item">
+        <input type="checkbox" id="confirmTrue">
+        <span data-i18n="declareTrue">I confirm that the information provided in this application is true and accurate to the best of my knowledge.</span>
+      </label>
+    </div>
+    <div class="field">
+      <label class="option-item">
+        <input type="checkbox" id="confirmContact">
+        <span data-i18n="declareContact">I understand that Fin for Good may contact me to clarify information, assess my application, or discuss appropriate support.</span>
+      </label>
+    </div>
+    <div id="reviewAlert"></div>
+    <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;">
+      <button type="button" class="btn btn-ghost" id="btnBackToForm" data-i18n="btnBackToEdit">Back to edit</button>
+      <button type="button" class="btn btn-primary" id="btnSubmitFinal" data-i18n="btnSubmitFinal">Submit application</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SUCCESS SCREEN ===================== -->
+<div id="screenSuccess" class="wrap hidden">
+  <div class="center-screen">
+    <div class="big-icon">✅</div>
+    <h2 data-i18n="successTitle">Application submitted</h2>
+    <p data-i18n="successDesc">Thank you! Your application has been submitted and can no longer be edited. A confirmation email has been sent to your email address.</p>
+    <p style="font-size:13px;color:var(--ink-soft);" id="successAppId"></p>
+    <button type="button" class="btn btn-secondary" id="btnViewSubmitted" data-i18n="btnViewSubmitted">View my submitted answers</button>
+  </div>
+</div>
+
+<!-- ===================== READ-ONLY (ALREADY SUBMITTED) VIEW ===================== -->
+<div id="screenLocked" class="wrap hidden">
+  <div class="card">
+    <div class="alert alert-info" data-i18n="lockedNotice">This application has already been submitted and can no longer be edited.</div>
+    <h2 data-i18n="reviewTitle">Review your application</h2>
+    <div id="lockedContent"></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   [1] CONFIG — edit these two lines after you deploy the backend.
+   ============================================================================ */
+const CONFIG = {
+  // Paste the Web App URL you get from Apps Script > Deploy > New deployment.
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzwf2Dkt2flx1Kp0uKud4tZwacova0jXfvW-tC7Lgo3Pz4M38PywudZEyZ-VCakXKIDRA/exec",
+
+  // Paste the ID of the Google Sheet you want this form to save into.
+  // (The long string in the Sheet's URL between /d/ and /edit)
+  // Change this any time to point the form at a different sheet —
+  // no need to touch the backend script.
+  SHEET_ID: "1PyHglCT3ldABUcXbVImXtawfXk4FKzQuTwfBfDy5XSI"
+};
+
+/* ============================================================================
+   [2] i18n STRINGS — fixed interface text (buttons, messages, labels that
+   are not form questions). Each entry is {th, en, my}. To add a language
+   string, add a key here, then use data-i18n="yourKey" on an element, or
+   call T('yourKey') from JavaScript.
+   ============================================================================ */
+const STRINGS = {
+  brandSub: {th:"บริษัท วันใหม่ - วันใหม่ จำกัด", en:"Wan Mai - New Day Co., Ltd.", my:"Wan Mai - New Day Co., Ltd."},
+  logout: {th:"ออกจากระบบ", en:"Log out", my:"ထွက်ရန်"},
+  welcomeTitle: {th:"แบบฟอร์มสมัคร Fin for Good", en:"Fin for Good — Application Form", my:"Fin for Good လျှောက်လွှာပုံစံ"},
+  welcomeDesc: {
+    th:"โครงการสนับสนุนสำหรับวิสาหกิจชุมชน วิสาหกิจเพื่อสังคม และธุรกิจขนาดเล็กในท้องถิ่น ด้านการทำบัญชี การวางแผนการเงิน การอบรม และทุนสนับสนุนธุรกิจขนาดเล็ก",
+    en:"A support programme for community-led enterprises, social enterprises and local small businesses — bookkeeping, financial planning, training and small business grants.",
+    my:"လူထုအခြေပြုစီးပွားရေးလုပ်ငန်းများ၊ လူမှုအကျိုးပြုစီးပွားရေးလုပ်ငန်းများနှင့် ဒေသခံအသေးစားစီးပွားရေးလုပ်ငန်းများအတွက် ပံ့ပိုးမှုအစီအစဉ်— စာရင်းကိုင်၊ ဘဏ္ဍာရေးစီမံကိန်း၊ သင်တန်းနှင့် အသေးစားစီးပွားရေးလုပ်ငန်း ထောက်ပံ့ငွေ။"
+  },
+  btnCreateAccount: {th:"สร้างบัญชีเพื่อเริ่มสมัคร", en:"Create an account to start", my:"အကောင့်ဖွင့်ပြီး စတင်လျှောက်ထားရန်"},
+  btnLogin: {th:"มีบัญชีอยู่แล้ว — เข้าสู่ระบบ", en:"I already have an account — Log in", my:"အကောင့်ရှိပြီးသားပါ — ဝင်ရောက်ရန်"},
+  registerTitle: {th:"สร้างบัญชีของท่าน", en:"Create your account", my:"သင့်အကောင့်ကို ဖန်တီးပါ"},
+  registerDesc: {
+    th:"สร้างบัญชีเพื่อบันทึกความคืบหน้า และกลับมาทำต่อภายหลังได้ ทำเพียงครั้งเดียว",
+    en:"Create an account so you can save your progress and come back to finish later. You only need to fill this in once.",
+    my:"တိုးတက်မှုကို သိမ်းဆည်းနိုင်ရန်နှင့် နောက်မှပြန်လာပြီး ဆက်လုပ်နိုင်ရန် အကောင့်တစ်ခု ဖန်တီးပါ။ တစ်ကြိမ်သာ ဖြည့်ရန်လိုအပ်ပါသည်။"
+  },
+  fName: {th:"ชื่อ-นามสกุล", en:"Full name", my:"အမည်အပြည့်အစုံ"},
+  fEmail: {th:"อีเมล", en:"Email address", my:"အီးမေးလ်"},
+  fEmailHint: {th:"เราจะส่งอีเมลยืนยันและข้อมูลอัปเดตไปยังอีเมลนี้", en:"We'll send your confirmation and updates to this address.", my:"အတည်ပြုချက်နှင့် အပ်ဒိတ်များကို ဤလိပ်စာသို့ ပေးပို့ပါမည်။"},
+  fPassword: {th:"รหัสผ่าน", en:"Password", my:"စကားဝှက်"},
+  fPasswordHint: {th:"อย่างน้อย 6 ตัวอักษร", en:"At least 6 characters.", my:"အနည်းဆုံး စာလုံးရေ ၆ လုံး။"},
+  btnCreateAccount2: {th:"สร้างบัญชี & เริ่มกรอกใบสมัคร", en:"Create account & start application", my:"အကောင့်ဖွင့်ပြီး လျှောက်လွှာစတင်ရန်"},
+  haveAccount: {th:"มีบัญชีอยู่แล้ว?", en:"Already have an account?", my:"အကောင့်ရှိပြီးသားလား?"},
+  btnLoginShort: {th:"เข้าสู่ระบบ", en:"Log in", my:"ဝင်ရောက်ရန်"},
+  loginTitle: {th:"เข้าสู่ระบบ", en:"Log in", my:"ဝင်ရောက်ရန်"},
+  loginDesc: {th:"เข้าสู่ระบบเพื่อทำใบสมัครที่บันทึกไว้ต่อ หรือดูใบสมัครที่ส่งแล้ว", en:"Log in to continue your saved draft, or to view your submitted application.", my:"သိမ်းထားသော မူကြမ်းကို ဆက်လုပ်ရန် သို့မဟုတ် တင်သွင်းပြီးသား လျှောက်လွှာကို ကြည့်ရန် ဝင်ရောက်ပါ။"},
+  btnLogin2: {th:"เข้าสู่ระบบ", en:"Log in", my:"ဝင်ရောက်ရန်"},
+  noAccount: {th:"ยังไม่มีบัญชี?", en:"Don't have an account yet?", my:"အကောင့်မရှိသေးဘူးလား?"},
+  btnCreateAccountShort: {th:"สร้างบัญชี", en:"Create one", my:"တစ်ခုဖန်တီးပါ"},
+  btnBack: {th:"ย้อนกลับ", en:"Back", my:"နောက်သို့"},
+  btnNext: {th:"ถัดไป", en:"Next", my:"ရှေ့သို့"},
+  btnSaveExit: {th:"บันทึกและทำต่อภายหลัง", en:"Save & continue later", my:"သိမ်းပြီး နောက်မှဆက်လုပ်ရန်"},
+  savedAuto: {th:"บันทึกอัตโนมัติแล้ว", en:"Saved", my:"သိမ်းပြီးပါပြီ"},
+  saving: {th:"กำลังบันทึก…", en:"Saving…", my:"သိမ်းနေသည်…"},
+  reviewTitle: {th:"ตรวจสอบใบสมัครของท่าน", en:"Review your application", my:"သင့်လျှောက်လွှာကို ပြန်စစ်ပါ"},
+  reviewDesc: {th:"กรุณาตรวจสอบคำตอบให้ครบถ้วน เมื่อส่งแล้วจะไม่สามารถแก้ไขได้", en:"Please check your answers carefully. Once you submit, you will not be able to edit this application.", my:"အဖြေများကို ဂရုတစိုက် စစ်ဆေးပါ။ တင်သွင်းပြီးပါက ပြင်ဆင်၍မရတော့ပါ။"},
+  declareTrue: {th:"ข้าพเจ้าขอรับรองว่าข้อมูลที่ให้ไว้ในแบบฟอร์มนี้เป็นความจริงและถูกต้องตามความรู้ของข้าพเจ้า", en:"I confirm that the information provided in this application is true and accurate to the best of my knowledge.", my:"ဤလျှောက်လွှာတွင် ဖော်ပြထားသော အချက်အလက်များသည် ကျွန်ုပ်သိရှိသလောက် မှန်ကန်ပြီး ပြည့်စုံကြောင်း အတည်ပြုပါသည်။"},
+  declareContact: {th:"ข้าพเจ้ายินยอมให้ Fin for Good ติดต่อเพื่อขอข้อมูลเพิ่มเติม ประเมินความต้องการ หรือหารือเกี่ยวกับรูปแบบการสนับสนุนที่เหมาะสม", en:"I understand that Fin for Good may contact me to clarify information, assess my application, or discuss appropriate support.", my:"Fin for Good မှ အချက်အလက်များ ထပ်မံမေးမြန်းရန်၊ လျှောက်လွှာကို အကဲဖြတ်ရန် သို့မဟုတ် သင့်လျော်သော ပံ့ပိုးမှုအကြောင်း ဆွေးနွေးရန် ကျွန်ုပ်အား ဆက်သွယ်နိုင်ကြောင်း သဘောတူပါသည်။"},
+  btnBackToEdit: {th:"ย้อนกลับไปแก้ไข", en:"Back to edit", my:"ပြန်ပြင်ရန်"},
+  btnSubmitFinal: {th:"ส่งใบสมัคร", en:"Submit application", my:"လျှောက်လွှာတင်သွင်းရန်"},
+  successTitle: {th:"ส่งใบสมัครเรียบร้อยแล้ว", en:"Application submitted", my:"လျှောက်လွှာ တင်သွင်းပြီးပါပြီ"},
+  successDesc: {th:"ขอบคุณค่ะ/ครับ ใบสมัครของท่านถูกส่งแล้วและไม่สามารถแก้ไขได้อีก ระบบได้ส่งอีเมลยืนยันไปยังอีเมลของท่านแล้ว", en:"Thank you! Your application has been submitted and can no longer be edited. A confirmation email has been sent to your email address.", my:"ကျေးဇူးတင်ပါသည်! သင့်လျှောက်လွှာကို တင်သွင်းပြီးဖြစ်ပြီး ပြန်ပြင်၍မရတော့ပါ။ အတည်ပြုအီးမေးလ်ကို သင့်လိပ်စာသို့ ပေးပို့ထားပါသည်။"},
+  btnViewSubmitted: {th:"ดูคำตอบที่ส่งแล้ว", en:"View my submitted answers", my:"တင်သွင်းပြီးသား အဖြေများကို ကြည့်ရန်"},
+  lockedNotice: {th:"ใบสมัครนี้ถูกส่งแล้วและไม่สามารถแก้ไขได้อีก", en:"This application has already been submitted and can no longer be edited.", my:"ဤလျှောက်လွှာကို တင်သွင်းပြီးဖြစ်၍ ပြန်ပြင်၍မရတော့ပါ။"},
+  requiredMsg: {th:"กรุณากรอกข้อมูลนี้", en:"This field is required.", my:"ဤအကွက်ကို ဖြည့်ရန် လိုအပ်ပါသည်။"},
+  errFillAll: {th:"กรุณากรอกข้อมูลที่จำเป็นให้ครบก่อนไปต่อ", en:"Please complete the required fields before continuing.", my:"မဆက်မီ လိုအပ်သောအကွက်များကို ဖြည့်ပါ။"},
+  errRegisterFields: {th:"กรุณากรอกชื่อ อีเมล และรหัสผ่านให้ครบถ้วน", en:"Please fill in your name, email and password.", my:"အမည်၊ အီးမေးလ်နှင့် စကားဝှက်ကို ဖြည့်ပါ။"},
+  errPasswordShort: {th:"รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร", en:"Password must be at least 6 characters.", my:"စကားဝှက်သည် အနည်းဆုံး စာလုံး ၆ လုံးရှိရမည်။"},
+  errLoginFields: {th:"กรุณากรอกอีเมลและรหัสผ่าน", en:"Please enter your email and password.", my:"အီးမေးလ်နှင့် စကားဝှက်ထည့်ပါ။"},
+  errServer: {th:"เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง", en:"Something went wrong. Please try again.", my:"တစ်ခုခုမှားယွင်းသွားပါသည်။ ထပ်စမ်းကြည့်ပါ။"},
+  errNotConfigured: {th:"ยังไม่ได้ตั้งค่าการเชื่อมต่อระบบ กรุณาติดต่อผู้ดูแลระบบ", en:"This form is not yet connected to a backend. Please contact the administrator.", my:"ဤဖောင်ကို backend နှင့် မချိတ်ဆက်ရသေးပါ။ စီမံခန့်ခွဲသူကို ဆက်သွယ်ပါ။"},
+  errConfirmBoxes: {th:"กรุณายืนยันข้อความทั้งสองข้อก่อนส่งใบสมัคร", en:"Please confirm both declarations before submitting.", my:"မတင်သွင်းမီ ကြေညာချက်နှစ်ခုလုံးကို အတည်ပြုပါ။"},
+  needAccount: {th:"บัญชี", en:"Account", my:"အကောင့်"},
+  edit: {th:"แก้ไข", en:"Edit", my:"ပြင်ရန်"},
+  addRow: {th:"+ เพิ่มรายการ", en:"+ Add row", my:"+ တန်း ထပ်ထည့်ရန်"},
+  remove: {th:"ลบ", en:"Remove", my:"ဖျက်ရန်"},
+  total: {th:"รวม", en:"Total", my:"စုစုပေါင်း"},
+  otherSpecify: {th:"ระบุอื่น ๆ", en:"Please specify", my:"ဖော်ပြပါ"},
+  partOf: {th:"ส่วนที่", en:"Part", my:"အပိုင်း"},
+  of: {th:"จาก", en:"of", my:"/"},
+  restoredDraft: {th:"กู้คืนแบบร่างที่บันทึกไว้เรียบร้อยแล้ว", en:"Your saved draft has been restored.", my:"သိမ်းထားသော မူကြမ်းကို ပြန်လည်ရယူပြီးပါပြီ။"},
+  confirmLogout: {th:"ต้องการออกจากระบบหรือไม่? ข้อมูลของท่านถูกบันทึกไว้แล้ว", en:"Log out? Your saved data will still be here next time.", my:"ထွက်မလား? သင့်အချက်အလက်များကို သိမ်းထားပါသည်။"},
+  submitConfirm: {th:"ยืนยันการส่ง: เมื่อส่งแล้วจะไม่สามารถแก้ไขข้อมูลได้อีก ต้องการส่งใบสมัครนี้หรือไม่?", en:"Confirm submission: once submitted this application cannot be edited. Submit now?", my:"အတည်ပြုပါ- တင်သွင်းပြီးပါက ပြန်ပြင်၍မရတော့ပါ။ ယခု တင်သွင်းမလား?"}
+};
+
+/* ============================================================================
+   [3] FORM SCHEMA — every question in the application, in order.
+   ----------------------------------------------------------------------------
+   HOW TO EDIT THIS SAFELY:
+   - L(th, en, my) is a small helper that just builds {th, en, my}. Use it
+     for every piece of text a user sees (labels, hints, options).
+   - Each STEP is one screen the applicant sees (one "Part" of the form).
+   - Each FIELD inside a step's `fields` array becomes one question.
+   - To add a question: copy a similar field object, give it a new unique
+     `id` (this becomes the column/key the answer is stored under), and
+     edit the labels/options/type.
+   - To remove a question: delete its object from the array.
+   - To reorder questions: reorder the objects in the array.
+   - Supported field `type` values:
+       text, textarea, number, tel, email, date,
+       select        (dropdown, single choice)
+       radio         (single choice, shown as a list — supports "other")
+       checkbox      (multiple choice — supports "other")
+       productsTable (repeatable Product/Description/Price rows)
+       budgetTable   (repeatable Item/Purpose/Amount rows, auto-totalled)
+       staffTable    (fixed rows of headcount categories, auto-totalled)
+       consent       (rendered specially on the review step; not used here
+                      directly — consent checkboxes live on the Review screen)
+   - `required: true` blocks "Next" until the field has a value.
+   - `showIf: {field: 'otherFieldId', includes: 'optionValue'}` makes a
+     field appear only when another field's answer matches — this is how
+     Part 7 (Grant Application) only appears if the applicant asked for a
+     grant in Part 6.
+   ============================================================================ */
+function L(th, en, my){ return {th, en, my}; }
+
+const FORM_SCHEMA = [
+
+/* ---------------- PART 1 — APPLICANT INFORMATION ---------------- */
+{
+  id:"part1", part:1,
+  title: L("ข้อมูลผู้สมัคร","Applicant Information","လျှောက်ထားသူ၏ အချက်အလက်"),
+  desc: L("ข้อมูลพื้นฐานเกี่ยวกับกิจการหรือองค์กรของท่าน","Basic information about your enterprise or organization.","သင့်လုပ်ငန်း သို့မဟုတ် အဖွဲ့အစည်းအကြောင်း အခြေခံအချက်အလက်။"),
+  fields:[
+    {id:"orgNameTH", type:"text", required:true,
+      label:L("ชื่อกิจการ / องค์กร (ภาษาไทย)","Name of Enterprise / Organization (Thai)","လုပ်ငန်း/အဖွဲ့အစည်းအမည် (ထိုင်းဘာသာ)")},
+    {id:"orgNameEN", type:"text", required:true,
+      label:L("ชื่อกิจการ / องค์กร (ภาษาอังกฤษ)","Name of Enterprise / Organization (English)","လုပ်ငန်း/အဖွဲ့အစည်းအမည် (အင်္ဂလိပ်ဘာသာ)")},
+    {id:"orgNameMM", type:"text",
+      label:L("ชื่อกิจการ / องค์กร (ภาษาเมียนมา)","Name of Enterprise / Organization (Burmese)","လုပ်ငန်း/အဖွဲ့အစည်းအမည် (မြန်မာဘာသာ)")},
+    {id:"shortName", type:"text",
+      label:L("ชื่อย่อ / ชื่อที่ใช้ทั่วไป","Short Name / Abbreviation","အတိုကောက်အမည်")},
+    {id:"applicantType", type:"checkbox", required:true, other:true,
+      label:L("ประเภทของผู้สมัคร","Type of Applicant","လျှောက်ထားသူအမျိုးအစား"),
+      options:[
+        L("วิสาหกิจที่ขับเคลื่อนโดยชุมชน","Community-led enterprise","လူထုအခြေပြုစီးပွားရေးလုပ်ငန်း"),
+        L("วิสาหกิจเพื่อสังคม","Social enterprise","လူမှုအကျိုးပြုစီးပွားရေးလုပ်ငန်း"),
+        L("ธุรกิจขนาดเล็กในท้องถิ่น","Local small business","ဒေသခံအသေးစားစီးပွားရေးလုပ်ငန်း"),
+        L("กิจการที่นำโดยสตรี","Women-led enterprise","အမျိုးသမီးဦးဆောင်သည့်လုပ်ငန်း"),
+        L("กิจการที่นำโดยเยาวชน","Youth-led enterprise","လူငယ်ဦးဆောင်သည့်လုပ်ငန်း"),
+        L("กิจการที่นำโดยผู้ลี้ภัย/ผู้ย้ายถิ่น","Refugee/Migrant-led enterprise","ဒုက္ခသည်/ရွှေ့ပြောင်းနေထိုင်သူ ဦးဆောင်သည့်လုပ်ငန်း"),
+        L("องค์กรชุมชนที่มีกิจกรรมสร้างรายได้","Community organization with income-generating activities","ဝင်ငွေရရှိစေသောလုပ်ငန်းများ ဆောင်ရွက်သည့်လူထုအဖွဲ့အစည်း")
+      ]},
+    {id:"legalStatus", type:"radio", required:true, other:true,
+      label:L("สถานะทางกฎหมายขององค์กร/กิจการ","Legal Status","လုပ်ငန်း၏ တရားဝင်အခြေအနေ"),
+      options:[
+        L("บริษัทจดทะเบียน","Registered company","မှတ်ပုံတင်ထားသောကုမ္ပဏီ"),
+        L("วิสาหกิจเพื่อสังคม (จดทะเบียน)","Registered social enterprise","မှတ်ပုံတင်ထားသော လူမှုအကျိုးပြုစီးပွားရေးလုပ်ငန်း"),
+        L("วิสาหกิจชุมชน","Community enterprise","လူထုအခြေပြုစီးပွားရေးလုပ်ငန်း"),
+        L("องค์กรไม่แสวงหากำไร (NGO)","NGO / Non-profit organization","အကျိုးအမြတ်မယူသောအဖွဲ့အစည်း"),
+        L("ยังไม่ได้จดทะเบียน","Informal / Not yet registered","တရားဝင်မှတ်ပုံတင်ထားခြင်းမရှိသေးပါ")
+      ]},
+    {id:"registrationNumber", type:"text",
+      label:L("เลขทะเบียน (ถ้ามี)","Registration number, if applicable","မှတ်ပုံတင်အမှတ် (ရှိပါက)")},
+    {id:"yearEstablished", type:"number",
+      label:L("ปีที่ก่อตั้ง","Year Established","စတင်တည်ထောင်သည့်နှစ်")},
+    {id:"address", type:"textarea",
+      label:L("ที่อยู่","Address","လိပ်စာ")},
+    {id:"province", type:"text", required:true,
+      label:L("จังหวัด","Province","ပြည်နယ်/တိုင်းဒေသကြီး")}
+  ]
+},
+
+/* ---------------- PART 2 — ABOUT YOUR ENTERPRISE ---------------- */
+{
+  id:"part2", part:2,
+  title: L("ข้อมูลเกี่ยวกับกิจการ","About Your Enterprise","သင့်လုပ်ငန်းအကြောင်း"),
+  desc: L("กิจการทำอะไร ให้บริการใคร และต้องการแก้ไขปัญหาอะไร","What do you do? Who do you serve? What problem are you addressing?","ဘာလုပ်ငန်းလုပ်ဆောင်သလဲ၊ ဘယ်သူတွေကို ဝန်ဆောင်မှုပေးသလဲ။"),
+  fields:[
+    {id:"enterpriseDescription", type:"textarea", required:true,
+      label:L("กรุณาอธิบายกิจการ/องค์กรของท่านโดยสังเขป","Please briefly describe your enterprise / organization.","သင့်လုပ်ငန်း/အဖွဲ့အစည်းအကြောင်း အကျဉ်းချုပ်ဖော်ပြပါ။")},
+    {id:"productsServices", type:"productsTable",
+      label:L("สินค้า/บริการหลักของท่านคืออะไร","What are your main products or services?","အဓိကထုတ်ကုန်များ/ဝန်ဆောင်မှုများမှာ ဘာတွေလဲ။"),
+      columns:[
+        L("สินค้า/บริการ","Product / Service","ထုတ်ကုန်/ဝန်ဆောင်မှု"),
+        L("รายละเอียด","Description","ဖော်ပြချက်"),
+        L("ราคาโดยประมาณ","Approx. Price","ခန့်မှန်းစျေးနှုန်း")
+      ]},
+    {id:"mainCustomers", type:"checkbox", other:true,
+      label:L("ลูกค้าหรือผู้ใช้บริการหลักคือใคร","Who are your main customers or clients?","အဓိကဖောက်သည်များမှာ ဘယ်သူတွေလဲ။"),
+      options:[
+        L("ชุมชนท้องถิ่น","Local community","ဒေသခံလူထု"),
+        L("บุคคลทั่วไป","Individuals","တစ်ဦးချင်းဖောက်သည်များ"),
+        L("องค์กร","Organizations","အဖွဲ့အစည်းများ"),
+        L("ธุรกิจ","Businesses","စီးပွားရေးလုပ်ငန်းများ"),
+        L("NGO / องค์กรภาคประชาสังคม","NGOs / CSOs","NGOs / CSOs"),
+        L("หน่วยงานภาครัฐ","Government agencies","အစိုးရအဖွဲ့အစည်းများ"),
+        L("องค์กรระหว่างประเทศ","International organizations","အပြည်ပြည်ဆိုင်ရာအဖွဲ့အစည်းများ")
+      ]}
+  ]
+},
+
+/* ---------------- PART 3 — SOCIAL IMPACT ---------------- */
+{
+  id:"part3", part:3,
+  title: L("ผลกระทบทางสังคม","Social Impact","လူမှုအကျိုးသက်ရောက်မှု"),
+  desc: L("Fin for Good สนับสนุนธุรกิจที่สร้างผลลัพธ์ทางสังคมและเศรษฐกิจเชิงบวก โดยให้ความสำคัญกับกิจการที่นำโดยสตรีและผู้ลี้ภัย/ผู้ย้ายถิ่นสำหรับทุนสนับสนุนธุรกิจขนาดเล็ก",
+       "Fin for Good supports businesses contributing to positive social and economic outcomes, prioritizing women-led and refugee/migrant-led enterprises for the grant component.",
+       "Fin for Good သည် အမျိုးသမီးဦးဆောင်နှင့် ဒုက္ခသည်/ရွှေ့ပြောင်းနေထိုင်သူ ဦးဆောင်သည့်လုပ်ငန်းများကို ဦးစားပေးသည်။"),
+  fields:[
+    {id:"beneficiaryGroups", type:"checkbox", other:true, required:true,
+      label:L("กลุ่มผู้ได้รับประโยชน์หรือกลุ่มเป้าหมายหลักคือใคร","Who are the main beneficiaries or target groups of your enterprise?","အဓိကအကျိုးခံစားခွင့်ရှိသူများမှာ ဘယ်သူတွေလဲ။"),
+      options:[
+        L("สตรี","Women","အမျိုးသမီးများ"), L("เยาวชน","Youth","လူငယ်များ"),
+        L("แรงงานข้ามชาติ","Migrants","ရွှေ့ပြောင်းနေထိုင်သူများ"), L("ผู้ลี้ภัย","Refugees","ဒုက္ခသည်များ"),
+        L("ผู้พิการ","Persons with disabilities","မသန်စွမ်းသူများ"),
+        L("ครัวเรือนรายได้น้อย","Low-income households","ဝင်ငွေနည်းမိသားစုများ"),
+        L("ผู้สูงอายุ","Elderly people","သက်ကြီးရွယ်အိုများ"), L("เกษตรกร","Farmers","တောင်သူလယ်သမားများ"),
+        L("ช่างฝีมือ","Artisans","လက်မှုပညာရှင်များ"),
+        L("กลุ่มเปราะบางอื่น ๆ","Other vulnerable groups","အခြားထိခိုက်လွယ်အုပ်စုများ"),
+        L("ชุมชนทั่วไป","General community","ဒေသခံလူထု")
+      ]},
+    {id:"directBeneficiaries", type:"number",
+      label:L("ผู้ได้รับประโยชน์โดยตรง (จำนวนคน)","Direct beneficiaries (approx. number)","တိုက်ရိုက်အကျိုးခံစားခွင့်ရှိသူ")},
+    {id:"indirectBeneficiaries", type:"number",
+      label:L("ผู้ได้รับประโยชน์ทางอ้อม (จำนวนคน)","Indirect beneficiaries (approx. number)","သွယ်ဝိုက်အကျိုးခံစားခွင့်ရှိသူ")},
+    {id:"socialImpactDescription", type:"textarea", required:true,
+      label:L("กรุณาอธิบายผลกระทบทางสังคมที่กิจการของท่านสร้างขึ้น","Please describe the social impact created by your enterprise.","သင့်လုပ်ငန်းမှ ဖန်တီးပေးသည့် လူမှုအကျိုးသက်ရောက်မှုကို ဖော်ပြပါ။")},
+    {id:"sdgs", type:"checkbox", other:true,
+      label:L("กิจการของท่านเชื่อมโยงกับ SDGs ข้อใดบ้าง","Which Sustainable Development Goals (SDGs) does your work contribute to?","သင့်လုပ်ငန်းသည် မည်သည့် SDGs များနှင့် ဆက်စပ်သနည်း။"),
+      options:[
+        L("SDG 1 — ขจัดความยากจน","SDG 1 — No Poverty","SDG 1 — ဆင်းရဲနွမ်းပါးမှု ပပျောက်ရေး"),
+        L("SDG 3 — สุขภาพและความเป็นอยู่ที่ดี","SDG 3 — Good Health and Well-being","SDG 3 — ကျန်းမာရေးနှင့် သာယာဝပြောရေး"),
+        L("SDG 4 — การศึกษาที่มีคุณภาพ","SDG 4 — Quality Education","SDG 4 — အရည်အသွေးရှိ ပညာရေး"),
+        L("SDG 5 — ความเท่าเทียมทางเพศ","SDG 5 — Gender Equality","SDG 5 — ကျား/မ တန်းတူညီမျှရေး"),
+        L("SDG 8 — งานที่มีคุณค่าและการเติบโตทางเศรษฐกิจ","SDG 8 — Decent Work and Economic Growth","SDG 8 — သင့်တင့်လျောက်ပတ်သော အလုပ်အကိုင်"),
+        L("SDG 10 — ลดความเหลื่อมล้ำ","SDG 10 — Reduced Inequalities","SDG 10 — မညီမျှမှုများ လျှော့ချရေး"),
+        L("SDG 11 — เมืองและชุมชนที่ยั่งยืน","SDG 11 — Sustainable Cities and Communities","SDG 11 — ရေရှည်တည်တံ့သော မြို့များ"),
+        L("SDG 12 — การผลิตและบริโภคอย่างรับผิดชอบ","SDG 12 — Responsible Consumption and Production","SDG 12 — တာဝန်ယူမှုရှိသော ထုတ်လုပ်မှု"),
+        L("SDG 13 — การรับมือการเปลี่ยนแปลงสภาพภูมิอากาศ","SDG 13 — Climate Action","SDG 13 — ရာသီဥတုပြောင်းလဲမှု")
+      ]},
+    {id:"sdgExplain", type:"textarea",
+      label:L("กรุณาอธิบายความเชื่อมโยง","Please explain the connection","ဆက်စပ်မှုကို ရှင်းပြပါ")}
+  ]
+},
+
+/* ---------------- PART 4 — ORGANIZATION & TEAM ---------------- */
+{
+  id:"part4", part:4,
+  title: L("ข้อมูลองค์กรและทีมงาน","Organization & Team","အဖွဲ့အစည်းနှင့် ဝန်ထမ်းအဖွဲ့"),
+  desc: L("","",""),
+  fields:[
+    {id:"staffCounts", type:"staffTable",
+      label:L("จำนวนบุคลากรปัจจุบัน","How many people currently work in your enterprise?","လက်ရှိလုပ်ကိုင်နေသူအရေအတွက်"),
+      rows:[
+        {id:"fullTime", label:L("พนักงานเต็มเวลา","Full-time staff","အချိန်ပြည့်ဝန်ထမ်း")},
+        {id:"partTime", label:L("พนักงานบางเวลา","Part-time staff","အချိန်ပိုင်းဝန်ထမ်း")},
+        {id:"volunteers", label:L("อาสาสมัคร","Volunteers","စေတနာ့ဝန်ထမ်း")},
+        {id:"producers", label:L("สมาชิกชุมชน/ผู้ผลิต","Community members / producers","အသိုင်းအဝိုင်းဝင်/ထုတ်လုပ်သူ")}
+      ]},
+    {id:"staffWomen", type:"number", label:L("เป็นสตรี (จำนวนคน)","Of which are Women","အမျိုးသမီး")},
+    {id:"staffYouth", type:"number", label:L("เป็นเยาวชน (จำนวนคน)","Of which are Youth","လူငယ်")},
+    {id:"staffMigrants", type:"number", label:L("เป็นแรงงานข้ามชาติ (จำนวนคน)","Of which are Migrants","ရွှေ့ပြောင်းနေထိုင်သူ")},
+    {id:"staffRefugees", type:"number", label:L("เป็นผู้ลี้ภัย (จำนวนคน)","Of which are Refugees","ဒုက္ခသည်")},
+    {id:"staffVulnerable", type:"number", label:L("เป็นกลุ่มเปราะบาง (จำนวนคน)","Of which are from vulnerable groups","ထိခိုက်လွယ်အုပ်စု")},
+    {id:"financeResponsible", type:"radio", required:true,
+      label:L("ใครเป็นผู้รับผิดชอบด้านการบริหารการเงิน","Who is responsible for financial management?","ဘဏ္ဍာရေးစီမံခန့်ခွဲမှုအတွက် မည်သူတာဝန်ရှိသနည်း။"),
+      options:[
+        L("เจ้าของ/ผู้ก่อตั้ง","Owner / Founder","ပိုင်ရှင်/တည်ထောင်သူ"),
+        L("ผู้จัดการ","Manager","မန်နေဂျာ"),
+        L("เจ้าหน้าที่การเงิน/บัญชี","Finance/Accounting staff","ဘဏ္ဍာရေး/စာရင်းကိုင်ဝန်ထမ်း"),
+        L("นักบัญชีภายนอก","External accountant","ပြင်ပစာရင်းကိုင်"),
+        L("อาสาสมัคร","Volunteer","စေတနာ့ဝန်ထမ်း"),
+        L("ยังไม่มีผู้รับผิดชอบเฉพาะ","No dedicated person","တာဝန်ယူမည့်သူ သီးသန့်မရှိသေးပါ")
+      ]},
+    {id:"financeResponsibleExplain", type:"textarea",
+      label:L("กรุณาอธิบายเพิ่มเติม","Please explain","ရှင်းပြပါ")}
+  ]
+},
+
+/* ---------------- PART 5 — BUSINESS & FINANCIAL INFORMATION ---------------- */
+{
+  id:"part5", part:5,
+  title: L("ข้อมูลธุรกิจและการเงิน","Business & Financial Information","စီးပွားရေးနှင့် ဘဏ္ဍာရေးအချက်အလက်"),
+  desc: L("","",""),
+  fields:[
+    {id:"annualRevenue", type:"radio", required:true,
+      label:L("รายได้โดยประมาณต่อปี","Approximate annual revenue","နှစ်စဉ်ဝင်ငွေ ခန့်မှန်းခြေ"),
+      options:[
+        L("ยังไม่มีรายได้","No revenue yet","ဝင်ငွေမရှိသေးပါ"),
+        L("น้อยกว่า 100,000 บาท","Less than 100,000 THB","100,000 ဘတ်အောက်"),
+        L("100,000–300,000 บาท","100,000–300,000 THB","100,000–300,000 ဘတ်"),
+        L("300,001–500,000 บาท","300,001–500,000 THB","300,001–500,000 ဘတ်"),
+        L("500,001–1,000,000 บาท","500,001–1,000,000 THB","500,001–1,000,000 ဘတ်"),
+        L("1,000,001–3,000,000 บาท","1,000,001–3,000,000 THB","1,000,001–3,000,000 ဘတ်"),
+        L("มากกว่า 3,000,000 บาท","More than 3,000,000 THB","3,000,000 ဘတ်အထက်")
+      ]},
+    {id:"monthlyRevenue", type:"number", label:L("รายได้เฉลี่ยต่อเดือน (บาท)","Approximate monthly revenue (THB)","လစဉ်ပျမ်းမျှဝင်ငွေ (ဘတ်)")},
+    {id:"monthlyCosts", type:"number", label:L("ค่าใช้จ่ายในการดำเนินงานเฉลี่ยต่อเดือน (บาท)","Approximate monthly operating costs (THB)","လစဉ်လုပ်ငန်းလည်ပတ်မှုကုန်ကျစရိတ် (ဘတ်)")},
+    {id:"workingCapital", type:"number", label:L("เงินทุนหมุนเวียนปัจจุบันโดยประมาณ (บาท)","Approximate current working capital (THB)","လက်ရှိလည်ပတ်ငွေ (ဘတ်)")},
+    {id:"fundingSources", type:"checkbox", other:true,
+      label:L("แหล่งที่มาของเงินทุน/รายได้ในปัจจุบัน","Current sources of funding/income","လက်ရှိရန်ပုံငွေ/ဝင်ငွေအရင်းအမြစ်များ"),
+      options:[
+        L("การขายสินค้า/บริการ","Sales of products/services","ထုတ်ကုန်/ဝန်ဆောင်မှု ရောင်းချမှု"),
+        L("เงินสนับสนุน (Grants)","Grants","ထောက်ပံ့ငွေများ"), L("เงินบริจาค","Donations","လှူဒါန်းငွေများ"),
+        L("ค่าสมาชิก","Membership fees","အသင်းဝင်ကြေး"), L("การสนับสนุนจากภาครัฐ","Government support","အစိုးရအထောက်အပံ့"),
+        L("เงินกู้","Loans","ချေးငွေများ"), L("การลงทุน","Investment","ရင်းနှီးမြှုပ်နှံမှု")
+      ]},
+    {id:"keepsRecords", type:"radio", required:true,
+      label:L("ท่านมีการจัดทำบันทึกทางการเงินหรือไม่","Do you currently maintain financial records?","လက်ရှိတွင် ဘဏ္ဍာရေးမှတ်တမ်းထားရှိပါသလား။"),
+      options:[
+        L("มี — รายเดือน","Yes — monthly","ရှိသည် — လစဉ်"), L("มี — รายไตรมาส","Yes — quarterly","ရှိသည် — သုံးလတစ်ကြိမ်"),
+        L("มี — รายปี","Yes — annually","ရှိသည် — နှစ်စဉ်"), L("มีบันทึกพื้นฐานเท่านั้น","Basic records only","အခြေခံမှတ်တမ်းသာ"),
+        L("ไม่มี","No","မရှိပါ")
+      ]},
+    {id:"recordTypes", type:"checkbox", other:true,
+      label:L("ท่านมีบันทึกทางการเงินประเภทใดบ้าง","What financial records do you currently maintain?","မည်သည့် ဘဏ္ဍာရေးမှတ်တမ်းများ ထားရှိပါသလဲ။"),
+      options:[
+        L("บันทึกรายรับ/ยอดขาย","Sales/income records","ဝင်ငွေ/ရောင်းအား မှတ်တမ်း"),
+        L("บันทึกรายจ่าย","Expense records","အသုံးစရိတ်မှတ်တမ်း"), L("สมุดเงินสด","Cashbook","ငွေသားစာအုပ်"),
+        L("บันทึกธนาคาร","Bank records","ဘဏ်မှတ်တမ်း"), L("บัญชีลูกหนี้/เจ้าหนี้","Accounts receivable/payable","ရရန်/ပေးရန်စာရင်း"),
+        L("บันทึกสินค้าคงคลัง","Inventory records","ကုန်လက်ကျန်မှတ်တမ်း"), L("บันทึกเงินเดือน","Payroll records","လစာမှတ်တမ်း"),
+        L("งบประมาณ","Budget","ဘတ်ဂျက်"), L("งบกำไรขาดทุน","Profit & loss statement","အမြတ်အရှုံးစာရင်း"),
+        L("งบดุล","Balance sheet","လက်ကျန်ရှင်းတမ်း")
+      ]}
+  ]
+},
+
+/* ---------------- PART 6 — SUPPORT NEEDED ---------------- */
+{
+  id:"part6", part:6,
+  title: L("ประเภทการสนับสนุนที่ต้องการ","Support Needed","လိုအပ်သော ပံ့ပိုးမှု"),
+  desc: L("ท่านสามารถเลือกได้มากกว่าหนึ่งประเภท","You may select more than one type of support.","တစ်ခုထက်ပို၍ ရွေးချယ်နိုင်ပါသည်။"),
+  fields:[
+    {id:"supportBookkeeping", type:"checkbox",
+      label:L("A. การทำบัญชีและบันทึกทางการเงิน","A. Bookkeeping & Financial Records","A. စာရင်းရေးသွင်းခြင်းနှင့် ဘဏ္ဍာရေးမှတ်တမ်းများ"),
+      options:[
+        L("การทำบัญชีรายเดือน","Monthly bookkeeping support","လစဉ်စာရင်းကိုင်ပံ့ပိုးမှု"),
+        L("การทำบัญชีประจำปี","Annual bookkeeping/accounting support","နှစ်စဉ်စာရင်းကိုင်ပံ့ပိုးမှု"),
+        L("ระบบบันทึกรายรับรายจ่าย","Income & expense recording system","ဝင်ငွေ/အသုံးစရိတ် မှတ်တမ်းစနစ်"),
+        L("การติดตามกระแสเงินสด","Cash-flow tracking","ငွေသားစီးဆင်းမှု ခြေရာခံခြင်း"),
+        L("การรายงานทางการเงิน","Financial reporting","ဘဏ္ဍာရေးအစီရင်ခံခြင်း"),
+        L("การวางระบบบัญชีพื้นฐาน","Basic accounting system setup","အခြေခံစာရင်းကိုင်စနစ် ထူထောင်ခြင်း")
+      ]},
+    {id:"supportPlanning", type:"checkbox", other:true,
+      label:L("B. การวางแผนทางการเงินขององค์กร","B. Financial Planning","B. အဖွဲ့အစည်း ဘဏ္ဍာရေးစီမံကိန်းရေးဆွဲခြင်း"),
+      options:[
+        L("งบประมาณประจำปี","Annual budget","နှစ်စဉ်ဘတ်ဂျက်"), L("การวางแผนกระแสเงินสด","Cash-flow planning","ငွေသားစီးဆင်းမှု စီမံကိန်း"),
+        L("การวางแผนการเงินธุรกิจ","Business financial planning","စီးပွားရေးဘဏ္ဍာရေး စီမံကိန်း"),
+        L("การวิเคราะห์ต้นทุน/ราคา","Cost/pricing analysis","ကုန်ကျစရိတ်/စျေးနှုန်း သုံးသပ်ချက်"),
+        L("การวางแผนรายได้","Revenue planning","ဝင်ငွေစီမံကိန်း"),
+        L("การวางแผนความยั่งยืนทางการเงิน","Financial sustainability planning","ဘဏ္ဍာရေးရေရှည်တည်တံ့မှု စီမံကိန်း")
+      ]},
+    {id:"supportTraining", type:"checkbox", other:true,
+      label:L("C. การอบรมทักษะด้านการเงินและบัญชี","C. Financial & Accounting Training","C. ဘဏ္ဍာရေးနှင့် စာရင်းကိုင်ကျွမ်းကျင်မှုသင်တန်း"),
+      options:[
+        L("การทำบัญชีพื้นฐาน","Basic bookkeeping","အခြေခံစာရင်းကိုင်"), L("การจัดการรายรับรายจ่าย","Income & expense management","ဝင်ငွေ/အသုံးစရိတ် စီမံခန့်ခွဲမှု"),
+        L("การจัดทำงบประมาณ","Budgeting","ဘတ်ဂျက်ရေးဆွဲခြင်း"), L("การบริหารกระแสเงินสด","Cash-flow management","ငွေသားစီးဆင်းမှု စီမံခန့်ခွဲမှု"),
+        L("การตั้งราคาและต้นทุน","Pricing & costing","စျေးနှုန်းနှင့် ကုန်ကျစရိတ်"), L("การวางแผนการเงิน","Financial planning","ဘဏ္ဍာရေးစီမံကိန်း"),
+        L("ความรู้ทางการเงินสำหรับบุคลากร","Financial literacy for staff","ဝန်ထမ်းများအတွက် ဘဏ္ဍာရေးအသိပညာ"),
+        L("ความรู้ทางการเงินสำหรับสมาชิกชุมชน","Financial literacy for community members","အသိုင်းအဝိုင်းဝင်များအတွက် ဘဏ္ဍာရေးအသိပညာ")
+      ]},
+    {id:"supportGrant", type:"checkbox", other:true,
+      label:L("D. ทุนสนับสนุนธุรกิจชุมชนขนาดเล็ก","D. Community Small Business Grant","D. လူထုအခြေပြုအသေးစားစီးပွားရေးလုပ်ငန်း ထောက်ပံ့ငွေ"),
+      options:[
+        L("เงินทุนหมุนเวียน","Working capital","လည်ပတ်ငွေ"), L("อุปกรณ์","Equipment","စက်ပစ္စည်း"),
+        L("ค่าเริ่มต้นธุรกิจ","Start-up costs","လုပ်ငန်းစတင်ကုန်ကျစရိတ်"),
+        L("การพัฒนาผลิตภัณฑ์","Product development","ထုတ်ကုန်ဖွံ့ဖြိုးတိုးတက်မှု"),
+        L("การตลาด/การพัฒนาการขาย","Marketing/sales development","ဈေးကွက်/ရောင်းအားမြှင့်တင်ခြင်း")
+      ]},
+    {id:"grantAmountRequested", type:"number",
+      label:L("จำนวนเงินทุนที่ขอ (บาท) — สูงสุด 35,000 บาท","Amount requested (THB) — up to 35,000 THB","တောင်းခံသည့်ငွေပမာဏ (ဘတ်) — အများဆုံး ၃၅,၀၀၀ ဘတ်"),
+      showIf:{field:"supportGrant", notEmpty:true}}
+  ]
+},
+
+/* ---------------- PART 7 — GRANT APPLICATION (conditional) ---------------- */
+{
+  id:"part7", part:7, showIf:{field:"supportGrant", notEmpty:true},
+  title: L("สำหรับผู้สมัครขอทุน","Grant Application","ထောက်ပံ့ငွေလျှောက်ထားသူများအတွက်"),
+  desc: L("กรุณากรอกส่วนนี้เฉพาะกรณีสมัครขอทุนสนับสนุนธุรกิจขนาดเล็ก","Complete this section only if applying for a Fin for Good small-business grant.","ထောက်ပံ့ငွေလျှောက်ထားပါက ဤအပိုင်းကို ဖြည့်ပါ။"),
+  fields:[
+    {id:"grantUse", type:"textarea", required:true,
+      label:L("ท่านจะนำเงินทุนไปใช้ทำอะไร","What will the grant be used for?","ထောက်ပံ့ငွေကို ဘာအတွက် အသုံးပြုမည်နည်း။")},
+    {id:"grantBudget", type:"budgetTable",
+      label:L("กรุณาระบุงบประมาณอย่างง่าย","Please provide a simple budget.","ရိုးရှင်းသောဘတ်ဂျက် ဖော်ပြပါ။"),
+      columns:[L("รายการ","Item","အချက်"), L("วัตถุประสงค์","Purpose","ရည်ရွယ်ချက်"), L("จำนวนเงิน (บาท)","Amount (THB)","ပမာဏ (ဘတ်)")]},
+    {id:"grantBenefit", type:"checkbox", other:true,
+      label:L("การสนับสนุนนี้จะช่วยพัฒนากิจการของท่านอย่างไร","How will this investment improve your business?","ဤရင်းနှီးမြှုပ်နှံမှုသည် သင့်လုပ်ငန်းကို မည်သို့တိုးတက်စေမည်နည်း။"),
+      options:[
+        L("เพิ่มยอดขาย","Increase sales","ရောင်းအားတိုးရန်"), L("เพิ่มการผลิต","Increase production","ထုတ်လုပ်မှုတိုးရန်"),
+        L("สร้างงาน","Create jobs","အလုပ်အကိုင်ဖန်တီးရန်"), L("พัฒนาคุณภาพสินค้า/บริการ","Improve product/service quality","အရည်အသွေးမြှင့်ရန်"),
+        L("ลดต้นทุนการดำเนินงาน","Reduce operating costs","ကုန်ကျစရိတ်လျှော့ရန်"), L("เข้าถึงลูกค้า/ตลาดใหม่","Reach new customers/markets","ဖောက်သည်/ဈေးကွက်သစ်ရောက်ရန်"),
+        L("พัฒนาการบริหารการเงิน","Improve financial management","ဘဏ္ဍာရေးစီမံခန့်ခွဲမှု တိုးတက်ရန်"), L("เพิ่มผลกระทบทางสังคม","Increase social impact","လူမှုအကျိုးသက်ရောက်မှု တိုးရန်")
+      ]},
+    {id:"expectedRevenue6mo", type:"number", label:L("รายได้เพิ่มเติมที่คาดว่าจะเกิดขึ้น (บาท)","Expected additional revenue (THB)","မျှော်မှန်းထားသော ဝင်ငွေတိုး (ဘတ်)")},
+    {id:"expectedCustomers6mo", type:"number", label:L("ลูกค้าใหม่ที่คาดว่าจะได้รับ","Expected new customers","မျှော်မှန်းထားသော ဖောက်သည်သစ်")},
+    {id:"expectedJobs6mo", type:"number", label:L("งานที่คาดว่าจะสร้างได้","Expected jobs created","မျှော်မှန်းထားသော အလုပ်အကိုင်")},
+    {id:"expectedBeneficiaries6mo", type:"number", label:L("ผู้ได้รับประโยชน์ที่คาดว่าจะเข้าถึง","Expected beneficiaries reached","မျှော်မှန်းထားသော အကျိုးခံစားခွင့်ရှိသူ")},
+    {id:"expectedOther6mo", type:"textarea", label:L("ผลลัพธ์อื่น ๆ ที่คาดว่าจะเกิดขึ้น","Other expected result","အခြားမျှော်မှန်းရလဒ်")}
+  ]
+},
+
+/* ---------------- PART 8 — BUSINESS CHALLENGES & READINESS ---------------- */
+{
+  id:"part8", part:8,
+  title: L("ความท้าทายและความพร้อมของกิจการ","Business Challenges & Readiness","လုပ်ငန်း၏ စိန်ခေါ်မှုများနှင့် အဆင်သင့်ဖြစ်မှု"),
+  desc: L("","",""),
+  fields:[
+    {id:"topChallenges", type:"textarea", required:true,
+      label:L("ปัญหาหรือความท้าทายสำคัญ 3 ประการที่กิจการของท่านกำลังเผชิญ","What are the three biggest challenges facing your enterprise?","သင့်လုပ်ငန်းရင်ဆိုင်နေရသော အဓိကစိန်ခေါ်မှု ၃ ခု"),
+      hint:L("กรุณาระบุเป็นข้อ ๆ","Please list them one by one.","တစ်ခုချင်းစီဖော်ပြပါ။")},
+    {id:"priorityArea", type:"radio", required:true,
+      label:L("ด้านใดที่ต้องการพัฒนามากที่สุด","Which area most needs improvement?","မည်သည့်နယ်ပယ် အကောင်းဆုံးလိုအပ်သနည်း။"),
+      options:[
+        L("การบริหารการเงิน","Financial management","ဘဏ္ဍာရေးစီမံခန့်ခွဲမှု"), L("การทำบัญชี","Bookkeeping","စာရင်းကိုင်"),
+        L("การจัดทำงบประมาณ","Budgeting","ဘတ်ဂျက်ရေးဆွဲခြင်း"), L("การตั้งราคา","Pricing","စျေးနှုန်းသတ်မှတ်ခြင်း"),
+        L("การบริหารกระแสเงินสด","Cash-flow management","ငွေသားစီးဆင်းမှု စီမံခန့်ခွဲမှု"), L("การวางแผนธุรกิจ","Business planning","စီးပွားရေးစီမံကိန်း"),
+        L("การขายและการตลาด","Sales & marketing","ရောင်းချမှုနှင့် ဈေးကွက်"), L("การพัฒนาผลิตภัณฑ์","Product development","ထုတ်ကုန်ဖွံ့ဖြိုးတိုးတက်မှု"),
+        L("ทรัพยากรบุคคล","Human resources","လူ့စွမ်းအားအရင်းအမြစ်"), L("การดำเนินงาน","Operations","လည်ပတ်ဆောင်ရွက်မှု"),
+        L("เครื่องมือดิจิทัล","Digital tools","ဒစ်ဂျစ်တယ်ကိရိယာများ")
+      ]},
+    {id:"willingMentor", type:"radio", required:true,
+      label:L("ท่านยินดีทำงานร่วมกับพี่เลี้ยงจาก Fin for Good หรือไม่","Are you willing to work with a Fin for Good mentor?","Fin for Good နည်းပြနှင့်အတူ လုပ်ဆောင်ရန် ဆန္ဒရှိပါသလား။"),
+      options:[L("ยินดี","Yes","ဆန္ဒရှိသည်"), L("ไม่ยินดี","No","ဆန္ဒမရှိပါ"), L("ขอข้อมูลเพิ่มเติม","Need more information","ထပ်မံသိလိုသည်")]},
+    {id:"grantWillingness", type:"checkbox",
+      label:L("หากได้รับทุน ท่านยินดีที่จะ","If receiving a grant, are you willing to:","ထောက်ပံ့ငွေရရှိပါက သင်လုပ်ဆောင်လိုပါသလား-"),
+      showIf:{field:"supportGrant", notEmpty:true},
+      options:[
+        L("จัดทำบันทึกทางการเงินพื้นฐาน","Keep basic financial records","အခြေခံဘဏ္ဍာရေးမှတ်တမ်းထားရှိရန်"),
+        L("เข้าร่วมการให้คำปรึกษาด้านบัญชี","Participate in bookkeeping mentoring","စာရင်းကိုင်နည်းပြမှု ပါဝင်ရန်"),
+        L("ให้ข้อมูลความคืบหน้าทางการเงิน","Provide financial/progress information","ဘဏ္ဍာရေး/တိုးတက်မှု အချက်အလက်ပေးရန်"),
+        L("เข้าร่วมการติดตามผล 6 เดือน","Participate in a 6-month follow-up","၆လ ဆက်လက်လေ့လာမှု ပါဝင်ရန်"),
+        L("แบ่งปันบทเรียนจากการดำเนินธุรกิจ","Share lessons learned from the business","စီးပွားရေးမှ သင်ခန်းစာများ မျှဝေရန်"),
+        L("เข้าร่วมการอบรมของ Fin for Good","Participate in Fin for Good training","Fin for Good သင်တန်း ပါဝင်ရန်")
+      ]}
+  ]
+},
+
+/* ---------------- PART 9 — BUSINESS GOALS ---------------- */
+{
+  id:"part9", part:9,
+  title: L("เป้าหมายของกิจการ","Business Goals","လုပ်ငန်းရည်မှန်းချက်များ"),
+  desc: L("","",""),
+  fields:[
+    {id:"goals12mo", type:"checkbox", other:true, required:true,
+      label:L("เป้าหมายหลักใน 12 เดือนข้างหน้าคืออะไร","What are your main business goals for the next 12 months?","လာမည့် ၁၂ လအတွက် အဓိကလုပ်ငန်းရည်မှန်းချက်များ"),
+      options:[
+        L("เพิ่มรายได้","Increase revenue","ဝင်ငွေတိုးရန်"), L("มีความยั่งยืนทางการเงิน","Become financially sustainable","ဘဏ္ဍာရေးရေရှည်တည်တံ့ရန်"),
+        L("เพิ่มลูกค้า","Increase customers","ဖောက်သည်တိုးရန်"), L("สร้างงาน","Create employment","အလုပ်အကိုင်ဖန်တီးရန်"),
+        L("ขยายสินค้า/บริการ","Expand products/services","ထုတ်ကုန်/ဝန်ဆောင်မှု ချဲ့ထွင်ရန်"), L("เปิดตลาดใหม่","Open a new market","ဈေးကွက်သစ်ဖွင့်ရန်"),
+        L("พัฒนาระบบการเงิน","Improve financial systems","ဘဏ္ဍာရေးစနစ် တိုးတက်ရန်"), L("เพิ่มผลกระทบทางสังคม","Increase social impact","လူမှုအကျိုးသက်ရောက်မှု တိုးရန်"),
+        L("จดทะเบียนกิจการอย่างเป็นทางการ","Formalize/register the business","တရားဝင် မှတ်ပုံတင်ရန်")
+      ]},
+    {id:"mostImportantGoal", type:"textarea", required:true,
+      label:L("กรุณาอธิบายเป้าหมายที่สำคัญที่สุดของท่าน","Please describe your most important goal.","သင့်အရေးအကြီးဆုံး ရည်မှန်းချက်ကို ဖော်ပြပါ။")},
+    {id:"successDefinition", type:"textarea", required:true,
+      label:L("ความสำเร็จของกิจการท่านหลังได้รับการสนับสนุนจาก Fin for Good จะเป็นอย่างไร","What would success look like for your enterprise after receiving Fin for Good support?","Fin for Good ပံ့ပိုးမှု ရရှိပြီးနောက် အောင်မြင်မှုသည် မည်သို့ဖြစ်မည်နည်း။")}
+  ]
+},
+
+/* ---------------- PART 10 — DOCUMENTS & EVIDENCE (optional notes) ---------------- */
+{
+  id:"part10", part:10,
+  title: L("เอกสารประกอบ","Documents & Evidence","ပူးတွဲစာရွက်စာတမ်းများ"),
+  desc: L("ไม่จำเป็นต้องมีเอกสารทุกประเภทสำหรับกิจการที่ไม่เป็นทางการ ระบุเพียงเอกสารที่ท่านมีอยู่ และสามารถส่งอีเมลแนบไฟล์มาที่ wanmai.newday.se@gmail.com พร้อมระบุชื่อกิจการของท่าน",
+       "Not all documents are required for informal/community enterprises. Simply indicate what you have available — you can email the actual files as attachments to wanmai.newday.se@gmail.com with your enterprise name in the subject line.",
+       "အလွတ်သဘော/အသိုင်းအဝိုင်းလုပ်ငန်းများအတွက် စာရွက်စာတမ်း အားလုံးမလိုအပ်ပါ။ ရရှိနိုင်သည်များကို ရွေးချယ်ပြီး wanmai.newday.se@gmail.com သို့ ပူးတွဲပို့နိုင်ပါသည်။"),
+  fields:[
+    {id:"documentsAvailable", type:"checkbox", other:true,
+      label:L("กรุณาระบุเอกสารที่ท่านมีอยู่","Please indicate the documents you have available.","ရရှိနိုင်သော စာရွက်စာတမ်းများကို ဖော်ပြပါ။"),
+      options:[
+        L("การจดทะเบียนองค์กร/ธุรกิจ","Organization/business registration","အဖွဲ့အစည်း/လုပ်ငန်း မှတ်ပုံတင်"),
+        L("การจดทะเบียนวิสาหกิจเพื่อสังคม/ชุมชน","Social enterprise/community enterprise registration","လူမှု/အသိုင်းအဝိုင်းလုပ်ငန်း မှတ်ပုံတင်"),
+        L("บัตรประชาชน/เอกสารของผู้รับผิดชอบ","ID/document of responsible person","တာဝန်ခံ၏ ID/စာရွက်စာတမ်း"),
+        L("ข้อมูลสินค้า/บริการ","Product/service information","ထုတ်ကုန်/ဝန်ဆောင်မှု အချက်အလက်"),
+        L("บันทึกทางการเงินล่าสุด","Recent financial records","လတ်တလောဘဏ္ဍာရေးမှတ်တမ်း"),
+        L("รายการเดินบัญชีธนาคาร","Bank statement or transaction records","ဘဏ်စာရင်း/ငွေလွှဲမှတ်တမ်း"),
+        L("งบประมาณ/แผนธุรกิจ","Budget/business plan","ဘတ်ဂျက်/စီးပွားရေးအစီအစဉ်"),
+        L("รูปภาพธุรกิจ/สินค้า/บริการ","Photos of business/product/service","လုပ်ငန်း/ထုတ်ကုန်ဓာတ်ပုံများ")
+      ]}
+  ]
+},
+
+/* ---------------- PART 11 — CONTACT PERSON ---------------- */
+{
+  id:"part11", part:11,
+  title: L("ผู้ประสานงาน","Contact Person","ဆက်သွယ်ရန်တာဝန်ခံ"),
+  desc: L("","",""),
+  fields:[
+    {id:"contactName", type:"text", required:true, label:L("ชื่อ","Name","အမည်")},
+    {id:"contactPosition", type:"text", required:true, label:L("ตำแหน่ง","Position","ရာထူး")},
+    {id:"contactPhone", type:"tel", required:true, label:L("โทรศัพท์","Phone","ဖုန်း")},
+    {id:"contactEmail", type:"email", required:true, label:L("อีเมล","Email","အီးမေးလ်")},
+    {id:"contactLine", type:"text", label:L("LINE / Messenger / ช่องทางอื่น ๆ","LINE / Messenger / Other contact","LINE / Messenger / အခြားဆက်သွယ်ရန်")},
+    {id:"preferredLanguage", type:"radio", required:true,
+      label:L("ภาษาที่สะดวก","Preferred language","နှစ်သက်သောဘာသာစကား"),
+      options:[L("ไทย","Thai","ထိုင်း"), L("อังกฤษ","English","အင်္ဂလိပ်"), L("เมียนมา","Burmese","မြန်မာ")]}
+  ]
+}
+
+]; // end FORM_SCHEMA
+
+/* ============================================================================
+   [4] APP STATE — everything about where the user currently is.
+   Kept in one object so it's easy to see the whole picture, and so we can
+   persist the bits that matter (auth token, applicationId) to localStorage.
+   ============================================================================ */
+const STORAGE_KEY = "finforgood_session_v1";
+
+const state = {
+  lang: "th",                 // current UI language: th | en | my
+  user: null,                 // {token, name, email}
+  applicationId: null,        // the Applications row this draft/submission belongs to
+  status: "draft",            // draft | submitted
+  answers: {},                // all form answers, keyed by field id
+  visibleSteps: [],           // FORM_SCHEMA steps that currently apply (after showIf filtering)
+  stepIndex: 0                // index into visibleSteps
+};
+
+function saveSession(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    token: state.user ? state.user.token : null,
+    email: state.user ? state.user.email : null,
+    name: state.user ? state.user.name : null,
+    applicationId: state.applicationId
+  }));
+}
+function loadSession(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return null;
+    return JSON.parse(raw);
+  }catch(e){ return null; }
+}
+function clearSession(){
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+/* Small translation helper: T('key') looks up STRINGS[key][state.lang] */
+function T(key){
+  const entry = STRINGS[key];
+  if(!entry) return key;
+  return entry[state.lang] || entry.en || "";
+}
+/* Same idea but for an {th,en,my} object built inline with L(...) */
+function Tl(obj){
+  if(!obj) return "";
+  return obj[state.lang] || obj.en || "";
+}
+
+/* Apply translations to every element with data-i18n="key" */
+function applyStaticTranslations(){
+  document.querySelectorAll("[data-i18n]").forEach(el=>{
+    const key = el.getAttribute("data-i18n");
+    el.textContent = T(key);
+  });
+  document.documentElement.lang = state.lang;
+  document.querySelectorAll(".lang-switch button").forEach(btn=>{
+    btn.classList.toggle("active", btn.dataset.lang === state.lang);
+  });
+}
+
+/* ============================================================================
+   [5] API HELPERS — everything that talks to the Google Apps Script backend.
+   All requests are POSTed as a plain JSON string (Content-Type defaults to
+   text/plain, which keeps the browser from sending a CORS "preflight"
+   request that Apps Script Web Apps cannot answer). Code.gs reads the raw
+   body and JSON.parse()s it itself — see doPost() there.
+   ============================================================================ */
+function showLoading(textKey){
+  document.getElementById("loadingText").textContent = textKey ? T(textKey) : "…";
+  document.getElementById("loadingOverlay").classList.remove("hidden");
+}
+function hideLoading(){
+  document.getElementById("loadingOverlay").classList.add("hidden");
+}
+
+async function api(action, payload){
+  if(!CONFIG.APPS_SCRIPT_URL || CONFIG.APPS_SCRIPT_URL.indexOf("PUT_YOUR") === 0){
+    throw new Error(T("errNotConfigured"));
+  }
+  const body = Object.assign({action, sheetId: CONFIG.SHEET_ID}, payload || {});
+  if(state.user && state.user.token){ body.token = state.user.token; }
+  const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if(!data.success){
+    throw new Error(data.message || T("errServer"));
+  }
+  return data;
+}
+
+/* ============================================================================
+   [6] RENDER ENGINE — turns FORM_SCHEMA into on-screen HTML, and reads
+   values back out of the DOM into state.answers.
+   ============================================================================ */
+
+/* Work out which steps currently apply, given current answers (for showIf) */
+function computeVisibleSteps(){
+  state.visibleSteps = FORM_SCHEMA.filter(step=>{
+    if(!step.showIf) return true;
+    return evalShowIf(step.showIf);
+  });
+}
+function evalShowIf(cond){
+  const val = state.answers[cond.field];
+  if(cond.notEmpty){
+    if(Array.isArray(val)) return val.length > 0;
+    return !!val;
+  }
+  if(cond.includes !== undefined){
+    if(Array.isArray(val)) return val.includes(cond.includes);
+    return val === cond.includes;
+  }
+  return true;
+}
+function isFieldVisible(field){
+  if(!field.showIf) return true;
+  return evalShowIf(field.showIf);
+}
+
+/* Build the HTML for one field, based on its type */
+function renderField(field){
+  if(!isFieldVisible(field)) return "";
+  const val = state.answers[field.id];
+  const reqMark = field.required ? '<span class="required-mark">*</span>' : "";
+  const label = `<label class="field-label">${escapeHtml(Tl(field.label))}${reqMark}</label>`;
+  const hint = field.hint ? `<div class="hint">${escapeHtml(Tl(field.hint))}</div>` : "";
+  let inputHtml = "";
+
+  switch(field.type){
+    case "text": case "email": case "tel": case "date":
+      inputHtml = `<input type="${field.type}" id="f_${field.id}" value="${escapeAttr(val||"")}">`;
+      break;
+    case "number":
+      inputHtml = `<input type="number" id="f_${field.id}" value="${escapeAttr(val||"")}" inputmode="decimal">`;
+      break;
+    case "textarea":
+      inputHtml = `<textarea id="f_${field.id}">${escapeHtml(val||"")}</textarea>`;
+      break;
+    case "select":
+      inputHtml = `<select id="f_${field.id}"><option value="">-- ${escapeHtml(T("otherSpecify"))} --</option>` +
+        field.options.map((opt,i)=>`<option value="${i}" ${String(val)===String(i)?"selected":""}>${escapeHtml(Tl(opt))}</option>`).join("") +
+        `</select>`;
+      break;
+    case "radio":
+      inputHtml = renderChoiceGroup(field, val, false);
+      break;
+    case "checkbox":
+      inputHtml = renderChoiceGroup(field, val, true);
+      break;
+    case "productsTable":
+      inputHtml = renderProductsTable(field, val);
+      break;
+    case "budgetTable":
+      inputHtml = renderBudgetTable(field, val);
+      break;
+    case "staffTable":
+      inputHtml = renderStaffTable(field, val);
+      break;
+    default:
+      inputHtml = `<input type="text" id="f_${field.id}" value="${escapeAttr(val||"")}">`;
+  }
+
+  return `<div class="field" id="field_${field.id}" data-field-id="${field.id}">${label}${inputHtml}${hint}<div class="field-error-msg">${escapeHtml(T("requiredMsg"))}</div></div>`;
+}
+
+/* Renders a radio (single) or checkbox (multi) list, with an optional
+   "Other, please specify" free-text option appended at the end. */
+function renderChoiceGroup(field, val, multi){
+  const selected = multi ? (Array.isArray(val && val.selected) ? val.selected : []) : (val ? val.selected : "");
+  const otherText = val ? (val.other || "") : "";
+  const type = multi ? "checkbox" : "radio";
+  let html = `<div class="option-list" data-choice-field="${field.id}" data-multi="${multi}">`;
+  field.options.forEach((opt,i)=>{
+    const checked = multi ? selected.includes(String(i)) : String(selected)===String(i);
+    html += `<label class="option-item">
+      <input type="${type}" name="choice_${field.id}" value="${i}" ${checked?"checked":""}>
+      <span>${escapeHtml(Tl(opt))}</span>
+    </label>`;
+  });
+  if(field.other){
+    const otherChecked = multi ? selected.includes("other") : selected === "other";
+    html += `<label class="option-item">
+      <input type="${type}" name="choice_${field.id}" value="other" ${otherChecked?"checked":""}>
+      <span>${escapeHtml(T("otherSpecify"))}</span>
+    </label>
+    <input type="text" class="other-input" id="other_${field.id}" placeholder="${escapeAttr(T('otherSpecify'))}" value="${escapeAttr(otherText)}">`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+/* Repeatable Product / Description / Price rows (Part 2, Q8) */
+function renderProductsTable(field, val){
+  const rows = (val && val.length) ? val : [{a:"",b:"",c:""}];
+  let html = `<table class="dyn-table" id="table_${field.id}"><thead><tr>` +
+    field.columns.map(c=>`<th>${escapeHtml(Tl(c))}</th>`).join("") + `<th></th></tr></thead><tbody>`;
+  rows.forEach((row,i)=>{
+    html += `<tr>
+      <td><input type="text" class="dt-a" value="${escapeAttr(row.a||"")}"></td>
+      <td><input type="text" class="dt-b" value="${escapeAttr(row.b||"")}"></td>
+      <td><input type="text" class="dt-c" value="${escapeAttr(row.c||"")}"></td>
+      <td><button type="button" class="row-remove" data-remove-row>&times;</button></td>
+    </tr>`;
+  });
+  html += `</tbody></table><button type="button" class="add-row-btn" data-add-row="${field.id}" data-row-type="products">${escapeHtml(T("addRow"))}</button>`;
+  return html;
+}
+
+/* Repeatable Item / Purpose / Amount rows with an auto-computed total (Part 7, Q26) */
+function renderBudgetTable(field, val){
+  const rows = (val && val.length) ? val : [{a:"",b:"",c:""}];
+  let html = `<table class="dyn-table" id="table_${field.id}"><thead><tr>` +
+    field.columns.map(c=>`<th>${escapeHtml(Tl(c))}</th>`).join("") + `<th></th></tr></thead><tbody>`;
+  rows.forEach(row=>{
+    html += `<tr>
+      <td><input type="text" class="dt-a" value="${escapeAttr(row.a||"")}"></td>
+      <td><input type="text" class="dt-b" value="${escapeAttr(row.b||"")}"></td>
+      <td><input type="number" class="dt-c budget-amount" value="${escapeAttr(row.c||"")}"></td>
+      <td><button type="button" class="row-remove" data-remove-row>&times;</button></td>
+    </tr>`;
+  });
+  html += `</tbody></table>
+    <button type="button" class="add-row-btn" data-add-row="${field.id}" data-row-type="budget">${escapeHtml(T("addRow"))}</button>
+    <div class="dyn-total">${escapeHtml(T("total"))}: <span id="total_${field.id}">0</span> THB</div>`;
+  return html;
+}
+
+/* Fixed-row headcount table with an auto-computed total (Part 4, Q14) */
+function renderStaffTable(field, val){
+  const data = val || {};
+  let html = `<table class="dyn-table" id="table_${field.id}"><tbody>`;
+  field.rows.forEach(r=>{
+    html += `<tr><td style="width:65%;">${escapeHtml(Tl(r.label))}</td>
+      <td><input type="number" class="staff-count" data-row="${r.id}" value="${escapeAttr(data[r.id]||"")}" min="0"></td></tr>`;
+  });
+  html += `</tbody></table><div class="dyn-total">${escapeHtml(T("total"))}: <span id="total_${field.id}">0</span></div>`;
+  return html;
+}
+
+function escapeHtml(s){
+  return String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function escapeAttr(s){ return escapeHtml(s); }
+
+/* Render a whole step (all of its fields) into #fieldsContainer */
+function renderStep(){
+  computeVisibleSteps();
+  if(state.stepIndex >= state.visibleSteps.length) state.stepIndex = state.visibleSteps.length - 1;
+  if(state.stepIndex < 0) state.stepIndex = 0;
+  const step = state.visibleSteps[state.stepIndex];
+  if(!step) return;
+
+  document.getElementById("stepPartLabel").textContent = `${T("partOf")} ${step.part} ${T("of")} 12`;
+  document.getElementById("stepHeading").textContent = Tl(step.title);
+  document.getElementById("stepDesc").textContent = Tl(step.desc);
+  document.getElementById("fieldsContainer").innerHTML = step.fields.map(renderField).join("");
+
+  wireDynamicTables();
+  updateStaffTotals();
+  updateBudgetTotals();
+
+  const pct = Math.round(((state.stepIndex) / state.visibleSteps.length) * 100);
+  document.getElementById("progressFill").style.width = pct + "%";
+  document.getElementById("progressStepLabel").textContent = `${T("partOf")} ${state.stepIndex+1} ${T("of")} ${state.visibleSteps.length}`;
+  document.getElementById("progressPercentLabel").textContent = pct + "%";
+
+  document.getElementById("btnBack").disabled = (state.stepIndex === 0);
+  document.getElementById("alertBox").innerHTML = "";
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
+/* Wire up "+ add row" / "remove row" buttons and live totals for the
+   three dynamic table types (products, budget, staff headcount). */
+function wireDynamicTables(){
+  document.querySelectorAll("[data-add-row]").forEach(btn=>{
+    btn.onclick = ()=>{
+      const table = document.getElementById("table_" + btn.dataset.addRow).querySelector("tbody");
+      const tr = document.createElement("tr");
+      if(btn.dataset.rowType === "budget"){
+        tr.innerHTML = `<td><input type="text" class="dt-a"></td><td><input type="text" class="dt-b"></td>
+          <td><input type="number" class="dt-c budget-amount"></td><td><button type="button" class="row-remove" data-remove-row>&times;</button></td>`;
+      } else {
+        tr.innerHTML = `<td><input type="text" class="dt-a"></td><td><input type="text" class="dt-b"></td>
+          <td><input type="text" class="dt-c"></td><td><button type="button" class="row-remove" data-remove-row>&times;</button></td>`;
+      }
+      table.appendChild(tr);
+      wireRowRemovers();
+      wireBudgetTotalListeners();
+    };
+  });
+  wireRowRemovers();
+  wireBudgetTotalListeners();
+  document.querySelectorAll(".staff-count").forEach(inp=>{
+    inp.oninput = updateStaffTotals;
+  });
+}
+function wireRowRemovers(){
+  document.querySelectorAll("[data-remove-row]").forEach(btn=>{
+    btn.onclick = ()=>{
+      const tr = btn.closest("tr");
+      const tbody = tr.parentElement;
+      if(tbody.children.length > 1){ tr.remove(); }
+      else { tr.querySelectorAll("input").forEach(i=>i.value=""); }
+      updateBudgetTotals();
+    };
+  });
+}
+function wireBudgetTotalListeners(){
+  document.querySelectorAll(".budget-amount").forEach(inp=>{
+    inp.oninput = updateBudgetTotals;
+  });
+}
+function updateStaffTotals(){
+  document.querySelectorAll("[id^='table_'] .staff-count").forEach(()=>{}); // noop guard
+  FORM_SCHEMA.forEach(step=>{
+    step.fields.filter(f=>f.type==="staffTable").forEach(f=>{
+      const table = document.getElementById("table_"+f.id);
+      if(!table) return;
+      let sum = 0;
+      table.querySelectorAll(".staff-count").forEach(inp=>{ sum += Number(inp.value)||0; });
+      const totalEl = document.getElementById("total_"+f.id);
+      if(totalEl) totalEl.textContent = sum;
+    });
+  });
+}
+function updateBudgetTotals(){
+  FORM_SCHEMA.forEach(step=>{
+    step.fields.filter(f=>f.type==="budgetTable").forEach(f=>{
+      const table = document.getElementById("table_"+f.id);
+      if(!table) return;
+      let sum = 0;
+      table.querySelectorAll(".budget-amount").forEach(inp=>{ sum += Number(inp.value)||0; });
+      const totalEl = document.getElementById("total_"+f.id);
+      if(totalEl) totalEl.textContent = sum.toLocaleString();
+    });
+  });
+}
+
+/* Read the DOM for the current step back into state.answers */
+function collectStepAnswers(){
+  const step = state.visibleSteps[state.stepIndex];
+  step.fields.forEach(field=>{
+    if(!isFieldVisible(field)) return;
+    switch(field.type){
+      case "text": case "email": case "tel": case "date": case "number": {
+        const el = document.getElementById("f_"+field.id);
+        if(el) state.answers[field.id] = el.value.trim();
+        break;
+      }
+      case "textarea": {
+        const el = document.getElementById("f_"+field.id);
+        if(el) state.answers[field.id] = el.value.trim();
+        break;
+      }
+      case "select": {
+        const el = document.getElementById("f_"+field.id);
+        if(el) state.answers[field.id] = el.value;
+        break;
+      }
+      case "radio": {
+        const checked = document.querySelector(`input[name="choice_${field.id}"]:checked`);
+        const otherEl = document.getElementById("other_"+field.id);
+        state.answers[field.id] = { selected: checked ? checked.value : "", other: otherEl ? otherEl.value.trim() : "" };
+        break;
+      }
+      case "checkbox": {
+        const checked = Array.from(document.querySelectorAll(`input[name="choice_${field.id}"]:checked`)).map(i=>i.value);
+        const otherEl = document.getElementById("other_"+field.id);
+        state.answers[field.id] = { selected: checked, other: otherEl ? otherEl.value.trim() : "" };
+        break;
+      }
+      case "productsTable": case "budgetTable": {
+        const table = document.getElementById("table_"+field.id);
+        if(!table) break;
+        const rows = [];
+        table.querySelectorAll("tbody tr").forEach(tr=>{
+          const a = tr.querySelector(".dt-a").value.trim();
+          const b = tr.querySelector(".dt-b").value.trim();
+          const c = tr.querySelector(".dt-c").value.trim();
+          if(a || b || c) rows.push({a,b,c});
+        });
+        state.answers[field.id] = rows;
+        break;
+      }
+      case "staffTable": {
+        const table = document.getElementById("table_"+field.id);
+        if(!table) break;
+        const data = {};
+        table.querySelectorAll(".staff-count").forEach(inp=>{
+          data[inp.dataset.row] = inp.value.trim();
+        });
+        state.answers[field.id] = data;
+        break;
+      }
+    }
+  });
+}
+
+/* ============================================================================
+   [7] VALIDATION — required-field checks for the current step.
+   ============================================================================ */
+function validateStep(){
+  const step = state.visibleSteps[state.stepIndex];
+  let ok = true;
+  let firstErrorEl = null;
+  step.fields.forEach(field=>{
+    if(!field.required || !isFieldVisible(field)) { clearFieldError(field.id); return; }
+    const val = state.answers[field.id];
+    let empty = true;
+    if(field.type === "radio"){ empty = !val || !val.selected; }
+    else if(field.type === "checkbox"){ empty = !val || !val.selected || val.selected.length===0; }
+    else if(field.type === "productsTable" || field.type === "budgetTable"){ empty = !val || val.length===0; }
+    else { empty = !val || String(val).trim()===""; }
+
+    if(empty){
+      ok = false;
+      showFieldError(field.id);
+      if(!firstErrorEl) firstErrorEl = document.getElementById("field_"+field.id);
+    } else {
+      clearFieldError(field.id);
+    }
+  });
+  if(!ok){
+    document.getElementById("alertBox").innerHTML = `<div class="alert alert-error">${escapeHtml(T("errFillAll"))}</div>`;
+    if(firstErrorEl) firstErrorEl.scrollIntoView({behavior:"smooth", block:"center"});
+  }
+  return ok;
+}
+function showFieldError(id){ const el = document.getElementById("field_"+id); if(el) el.classList.add("error"); }
+function clearFieldError(id){ const el = document.getElementById("field_"+id); if(el) el.classList.remove("error"); }
+
+/* ============================================================================
+   [8] NAVIGATION — Next / Back / Save & continue later / Review / Submit.
+   ============================================================================ */
+function showScreen(name){
+  ["Welcome","Register","Login","Form","Review","Success","Locked"].forEach(s=>{
+    document.getElementById("screen"+s).classList.toggle("hidden", s!==name);
+  });
+}
+
+async function goNext(){
+  collectStepAnswers();
+  if(!validateStep()) return;
+  await persistDraft(true);
+  if(state.stepIndex < state.visibleSteps.length - 1){
+    state.stepIndex++;
+    renderStep();
+  } else {
+    renderReview();
+    showScreen("Review");
+  }
+}
+function goBack(){
+  collectStepAnswers();
+  if(state.stepIndex > 0){
+    state.stepIndex--;
+    renderStep();
+  }
+}
+async function saveAndExit(){
+  collectStepAnswers();
+  await persistDraft(false);
+  showScreen("Welcome");
+}
+
+/* Save the current answers to the backend. `silent` skips the loading
+   overlay so it doesn't interrupt normal step-to-step navigation. */
+async function persistDraft(silent){
+  const statusEl = document.getElementById("saveStatusText");
+  try{
+    if(!silent) showLoading("saving");
+    statusEl.textContent = T("saving");
+    await api("saveDraft", {
+      applicationId: state.applicationId,
+      answers: state.answers
+    });
+    statusEl.textContent = T("savedAuto");
+  }catch(err){
+    statusEl.textContent = err.message;
+  }finally{
+    if(!silent) hideLoading();
+  }
+}
+
+/* ============================================================================
+   REVIEW SCREEN — a read-only summary of every answered question, grouped
+   by Part, each with an "Edit" link that jumps straight back to that step.
+   ============================================================================ */
+function formatAnswerForDisplay(field){
+  const val = state.answers[field.id];
+  if(val === undefined || val === null || val === "") return "—";
+  switch(field.type){
+    case "radio": {
+      if(!val.selected) return "—";
+      if(val.selected === "other") return (val.other || "—") + " (" + T("otherSpecify") + ")";
+      return Tl(field.options[Number(val.selected)]);
+    }
+    case "checkbox": {
+      if(!val.selected || val.selected.length===0) return "—";
+      const parts = val.selected.map(s=>{
+        if(s === "other") return (val.other || T("otherSpecify"));
+        return Tl(field.options[Number(s)]);
+      });
+      return parts.join(", ");
+    }
+    case "productsTable": case "budgetTable": {
+      if(!val.length) return "—";
+      return val.map(r=>`${r.a}${r.b?" — "+r.b:""}${r.c?" ("+r.c+")":""}`).join("; ");
+    }
+    case "staffTable": {
+      const parts = Object.keys(val).filter(k=>val[k]).map(k=>k+": "+val[k]);
+      return parts.length ? parts.join(", ") : "—";
+    }
+    default:
+      return String(val);
+  }
+}
+
+function renderReview(){
+  collectStepAnswers();
+  let html = "";
+  FORM_SCHEMA.forEach((step, stepIdx)=>{
+    if(step.showIf && !evalShowIf(step.showIf)) return;
+    const rows = step.fields
+      .filter(f=>isFieldVisible(f))
+      .map(f=>`<div class="review-row"><div class="rlabel">${escapeHtml(Tl(f.label))}</div><div class="rvalue">${escapeHtml(formatAnswerForDisplay(f))}</div></div>`)
+      .join("");
+    html += `<div class="review-section">
+      <h3>${T("partOf")} ${step.part} — ${escapeHtml(Tl(step.title))}
+        <span class="edit-link" data-jump-step="${stepIdx}">${escapeHtml(T("edit"))}</span>
+      </h3>
+      ${rows}
+    </div>`;
+  });
+  document.getElementById("reviewContent").innerHTML = html;
+  document.querySelectorAll("[data-jump-step]").forEach(el=>{
+    el.onclick = ()=>{
+      const targetSchemaIdx = Number(el.dataset.jumpStep);
+      computeVisibleSteps();
+      const visIdx = state.visibleSteps.indexOf(FORM_SCHEMA[targetSchemaIdx]);
+      state.stepIndex = visIdx >= 0 ? visIdx : 0;
+      renderStep();
+      showScreen("Form");
+    };
+  });
+  document.getElementById("confirmTrue").checked = false;
+  document.getElementById("confirmContact").checked = false;
+  document.getElementById("reviewAlert").innerHTML = "";
+}
+
+async function doSubmit(){
+  const t1 = document.getElementById("confirmTrue").checked;
+  const t2 = document.getElementById("confirmContact").checked;
+  if(!t1 || !t2){
+    document.getElementById("reviewAlert").innerHTML = `<div class="alert alert-error">${escapeHtml(T("errConfirmBoxes"))}</div>`;
+    return;
+  }
+  if(!confirm(T("submitConfirm"))) return;
+  try{
+    showLoading("saving");
+    const res = await api("submit", {
+      applicationId: state.applicationId,
+      answers: state.answers
+    });
+    state.status = "submitted";
+    hideLoading();
+    document.getElementById("successAppId").textContent = "Application ID: " + (res.applicationId || state.applicationId);
+    showScreen("Success");
+  }catch(err){
+    hideLoading();
+    document.getElementById("reviewAlert").innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderLockedView(){
+  let html = "";
+  FORM_SCHEMA.forEach(step=>{
+    if(step.showIf && !evalShowIf(step.showIf)) return;
+    const rows = step.fields
+      .filter(f=>isFieldVisible(f))
+      .map(f=>`<div class="review-row"><div class="rlabel">${escapeHtml(Tl(f.label))}</div><div class="rvalue">${escapeHtml(formatAnswerForDisplay(f))}</div></div>`)
+      .join("");
+    html += `<div class="review-section"><h3>${T("partOf")} ${step.part} — ${escapeHtml(Tl(step.title))}</h3>${rows}</div>`;
+  });
+  document.getElementById("lockedContent").innerHTML = html;
+}
+
+/* ============================================================================
+   [9] AUTH SCREENS — register / log in / resume.
+   ============================================================================ */
+document.getElementById("goRegister").onclick = ()=> showScreen("Register");
+document.getElementById("goLogin").onclick = ()=> showScreen("Login");
+document.getElementById("linkGoLogin").onclick = (e)=>{ e.preventDefault(); showScreen("Login"); };
+document.getElementById("linkGoRegister").onclick = (e)=>{ e.preventDefault(); showScreen("Register"); };
+
+document.getElementById("submitRegister").onclick = async ()=>{
+  const name = document.getElementById("regName").value.trim();
+  const email = document.getElementById("regEmail").value.trim();
+  const password = document.getElementById("regPassword").value;
+  const alertBox = document.getElementById("registerAlert");
+  alertBox.innerHTML = "";
+  if(!name || !email || !password){
+    alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(T("errRegisterFields"))}</div>`; return;
+  }
+  if(password.length < 6){
+    alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(T("errPasswordShort"))}</div>`; return;
+  }
+  try{
+    showLoading();
+    const res = await api("register", {name, email, password, language: state.lang});
+    afterLogin(res);
+  }catch(err){
+    alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }finally{ hideLoading(); }
+};
+
+document.getElementById("submitLogin").onclick = async ()=>{
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+  const alertBox = document.getElementById("loginAlert");
+  alertBox.innerHTML = "";
+  if(!email || !password){
+    alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(T("errLoginFields"))}</div>`; return;
+  }
+  try{
+    showLoading();
+    const res = await api("login", {email, password});
+    afterLogin(res);
+  }catch(err){
+    alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }finally{ hideLoading(); }
+};
+
+/* Called after a successful register or login: loads (or creates) the
+   applicant's draft/submission and shows the right screen. */
+async function afterLogin(res){
+  state.user = { token: res.token, name: res.name, email: res.email };
+  saveSession();
+  updateUserChip();
+  await loadApplicationForUser();
+}
+
+async function loadApplicationForUser(){
+  showLoading();
+  try{
+    const res = await api("getDraft", {});
+    state.applicationId = res.applicationId;
+    state.answers = res.answers || {};
+    state.status = res.status || "draft";
+    if(res.language) state.lang = res.language;
+    applyStaticTranslations();
+    saveSession();
+
+    if(state.status === "submitted"){
+      renderLockedView();
+      showScreen("Locked");
+    } else {
+      computeVisibleSteps();
+      state.stepIndex = 0;
+      renderStep();
+      showScreen("Form");
+    }
+  }catch(err){
+    alert(err.message);
+    showScreen("Welcome");
+  }finally{
+    hideLoading();
+  }
+}
+
+function updateUserChip(){
+  const chip = document.getElementById("userChip");
+  const logoutBtn = document.getElementById("logoutBtn");
+  if(state.user){
+    chip.textContent = state.user.name + " · " + state.user.email;
+    chip.classList.remove("hidden");
+    logoutBtn.classList.remove("hidden");
+  } else {
+    chip.classList.add("hidden");
+    logoutBtn.classList.add("hidden");
+  }
+}
+
+document.getElementById("logoutBtn").onclick = ()=>{
+  if(!confirm(T("confirmLogout"))) return;
+  state.user = null;
+  state.applicationId = null;
+  state.answers = {};
+  clearSession();
+  updateUserChip();
+  showScreen("Welcome");
+};
+
+document.getElementById("btnNext").onclick = goNext;
+document.getElementById("btnBack").onclick = goBack;
+document.getElementById("btnSaveExit").onclick = saveAndExit;
+document.getElementById("btnBackToForm").onclick = ()=>{ showScreen("Form"); renderStep(); };
+document.getElementById("btnSubmitFinal").onclick = doSubmit;
+document.getElementById("btnViewSubmitted").onclick = ()=>{ renderLockedView(); showScreen("Locked"); };
+
+document.querySelectorAll(".lang-switch button").forEach(btn=>{
+  btn.onclick = ()=>{
+    state.lang = btn.dataset.lang;
+    applyStaticTranslations();
+    // re-render whichever screen is currently visible, so question text updates too
+    if(!document.getElementById("screenForm").classList.contains("hidden")) renderStep();
+    if(!document.getElementById("screenReview").classList.contains("hidden")) renderReview();
+    if(!document.getElementById("screenLocked").classList.contains("hidden")) renderLockedView();
+  };
+});
+
+/* ============================================================================
+   [10] BOOTSTRAP — runs once when the page loads. Tries to resume a saved
+   session automatically; otherwise shows the welcome screen.
+   ============================================================================ */
+(async function bootstrap(){
+  applyStaticTranslations();
+  const saved = loadSession();
+  if(saved && saved.token){
+    state.user = { token: saved.token, email: saved.email, name: saved.name };
+    state.applicationId = saved.applicationId;
+    updateUserChip();
+    try{
+      showLoading();
+      const check = await api("checkSession", {});
+      state.user.name = check.name; state.user.email = check.email;
+      updateUserChip();
+      await loadApplicationForUser();
+    }catch(err){
+      // session expired or invalid — fall back to welcome screen
+      clearSession();
+      state.user = null;
+      updateUserChip();
+      showScreen("Welcome");
+    }finally{
+      hideLoading();
+    }
+  } else {
+    showScreen("Welcome");
+  }
+})();
+</script>
+</body>
+</html>

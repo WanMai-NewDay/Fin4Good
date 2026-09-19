@@ -14,7 +14,8 @@
     SHEET_ID — the ID of the Google Sheet this form saves into. That's
     the only value hard-coded here. The Apps Script Web App URL is
     NOT stored in this file — it's read automatically, every time the
-    page loads, from cell A1 of the "Configs" tab in that Sheet. This
+    page loads, from cell B1 of the "Configs" tab in that Sheet (A1 is
+    just the label "APPS_SCRIPT_URL" for that cell). This
     means that if you ever redeploy the backend and get a new Web App
     URL, you only need to update one cell in the Sheet — never this
     file. See DEPLOYMENT_GUIDE.md for the full setup walkthrough.
@@ -277,7 +278,7 @@ input:focus, textarea:focus, select:focus{
 <div id="screenWelcome" class="wrap">
   <div class="card auth-card" style="text-align:center;">
     <img id="programLogoImg" class="program-logo-img" alt="Fin for Good">
-    <div class="big-icon" id="programLogoFallback">🤝</div>
+    <div class="big-icon" id="programLogoFallback">🪙</div>
     <h1 data-i18n="welcomeTitle">Fin for Good — Application Form</h1>
     <p data-i18n="welcomeDesc">A support programme for community-led enterprises, social enterprises and local small businesses — bookkeeping, financial planning, training and small business grants.</p>
     <div style="display:flex; flex-direction:column; gap:10px; margin-top:18px;">
@@ -428,11 +429,11 @@ const CONFIG = {
   SHEET_ID: "1PyHglCT3ldABUcXbVImXtawfXk4FKzQuTwfBfDy5XSI",
 
   // NOT set here on purpose. The Apps Script Web App URL is read
-  // automatically at page-load time from cell A1 of the "Configs" tab
+  // automatically at page-load time from cell B1 of the "Configs" tab
   // in the Sheet above — see loadRemoteConfig() in section [5] below.
   // This way, redeploying the backend (which gives you a new Web App
   // URL) only ever requires updating one Sheet cell, never this file.
-  APPS_SCRIPT_URL: ""
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzOKZpDri6el4buPZXvaWSQ1sN_xgNMiKqx67e8v9r51-I78TJPJ33OXWvcx9dngwxOiQ/exec"
 };
 
 /* ============================================================================
@@ -1021,9 +1022,12 @@ async function api(action, payload){
    is a read-only public link — it does not let anyone edit the Sheet.
 
    Reads:
-     Configs!A1  → the Apps Script Web App URL
+     Configs!B1  → the Apps Script Web App URL (A1 is just the label "APPS_SCRIPT_URL")
      Configs!B3  → COMPANY_LOGO (a Google Drive share link)
      Configs!B4  → PROGRAM_LOGO (a Google Drive share link)
+   (Row 2, "SHEET_ID", is informational only — this file can't read its
+   own Sheet ID from the Sheet, since it needs the Sheet ID just to get
+   this far. CONFIG.SHEET_ID above is what actually controls that.)
    ---------------------------------------------------------------------- */
 async function loadRemoteConfig(){
   const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:json&sheet=Configs`;
@@ -1048,7 +1052,7 @@ async function loadRemoteConfig(){
     return String(row.c[colIdx].v).trim();
   };
   return {
-    appsScriptUrl: cell(0, 0), // A1
+    appsScriptUrl: cell(0, 1), // B1
     companyLogoRaw: cell(2, 1), // B3
     programLogoRaw: cell(3, 1)  // B4
   };
@@ -1733,7 +1737,7 @@ document.querySelectorAll(".lang-switch button").forEach(btn=>{
   try{
     const cfg = await loadRemoteConfig();
     if(!cfg.appsScriptUrl){
-      throw new Error("Cell A1 of the \"Configs\" tab is empty. Paste your Apps Script Web App URL there (see DEPLOYMENT_GUIDE.md).");
+      throw new Error("Cell B1 of the \"Configs\" tab is empty. Paste your Apps Script Web App URL there (see DEPLOYMENT_GUIDE.md).");
     }
     CONFIG.APPS_SCRIPT_URL = cfg.appsScriptUrl;
     applyLogos(cfg.companyLogoRaw, cfg.programLogoRaw);

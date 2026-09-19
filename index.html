@@ -483,7 +483,7 @@ const CONFIG = {
   // in the Sheet above — see loadRemoteConfig() in section [5] below.
   // This way, redeploying the backend (which gives you a new Web App
   // URL) only ever requires updating one Sheet cell, never this file.
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxfND_EZLGF4bD1NHgpCgeN7vqcC2GBirihr0GJ8LVIOW6CPFwOVWwRWrnYy99RXL6DPQ/exec"
+  APPS_SCRIPT_URL: ""
 };
 
 /* ============================================================================
@@ -543,6 +543,11 @@ const STRINGS = {
   errPasswordShort: {th:"รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร", en:"Password must be at least 6 characters.", my:"စကားဝှက်သည် အနည်းဆုံး စာလုံး ၆ လုံးရှိရမည်။"},
   errLoginFields: {th:"กรุณากรอกอีเมลและรหัสผ่าน", en:"Please enter your email and password.", my:"အီးမေးလ်နှင့် စကားဝှက်ထည့်ပါ။"},
   errServer: {th:"เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง", en:"Something went wrong. Please try again.", my:"တစ်ခုခုမှားယွင်းသွားပါသည်။ ထပ်စမ်းကြည့်ပါ။"},
+  errBadResponse: {
+    th:"เซิร์ฟเวอร์ตอบกลับมาไม่ถูกต้อง (ได้รับหน้าเว็บแทนที่จะเป็นข้อมูล) ซึ่งมักเกิดจากการตั้งค่า Apps Script Web App ที่ยังไม่ถูกต้อง — โปรดตรวจสอบว่า \"Who has access\" ตั้งเป็น \"Anyone\" และมีการ Deploy เวอร์ชันล่าสุดแล้ว (ดู DEPLOYMENT_GUIDE.md)",
+    en:"The server sent back a web page instead of data. This usually means the Apps Script Web App isn't deployed correctly — check that \"Who has access\" is set to \"Anyone\" and that the latest version has been deployed (see DEPLOYMENT_GUIDE.md).",
+    my:"ဆာဗာမှ ဒေတာအစား ဝဘ်စာမျက်နှာ ပြန်ပို့ခဲ့သည်။ ယေဘုယျအားဖြင့် Apps Script Web App ကို မှန်ကန်စွာ Deploy မလုပ်ရသေးခြင်းကြောင့်ဖြစ်သည် — \"Who has access\" ကို \"Anyone\" ဟု သတ်မှတ်ထားခြင်း ရှိမရှိ၊ နောက်ဆုံး version ကို Deploy လုပ်ပြီးခြင်း ရှိမရှိ စစ်ဆေးပါ (DEPLOYMENT_GUIDE.md ကိုကြည့်ပါ)။"
+  },
   errNotConfigured: {th:"ยังไม่ได้ตั้งค่าการเชื่อมต่อระบบ กรุณาติดต่อผู้ดูแลระบบ", en:"This form is not yet connected to a backend. Please contact the administrator.", my:"ဤဖောင်ကို backend နှင့် မချိတ်ဆက်ရသေးပါ။ စီမံခန့်ခွဲသူကို ဆက်သွယ်ပါ။"},
   errConfirmBoxes: {th:"กรุณายืนยันข้อความทั้งสองข้อก่อนส่งใบสมัคร", en:"Please confirm both declarations before submitting.", my:"မတင်သွင်းမီ ကြေညာချက်နှစ်ခုလုံးကို အတည်ပြုပါ။"},
   needAccount: {th:"บัญชี", en:"Account", my:"အကောင့်"},
@@ -573,6 +578,11 @@ const STRINGS = {
   bootFetchFailed: {th:"ไม่สามารถเชื่อมต่อได้ (Failed to fetch) — โปรดตรวจสอบว่าได้แชร์ Google Sheet เป็น \"ทุกคนที่มีลิงก์ดูได้\"", en:"Could not connect (Failed to fetch). Make sure the Google Sheet is shared as \"Anyone with the link can view.\"", my:"ချိတ်ဆက်၍မရပါ (Failed to fetch)။ Google Sheet ကို \"Anyone with the link can view\" ဟု မျှဝေထားကြောင်း သေချာပါစေ။"},
   bootReachable: {th:"เชื่อมต่อ backend ได้", en:"Backend reachable", my:"backend ချိတ်ဆက်နိုင်သည်"},
   bootUnreachable: {th:"ยังไม่สามารถยืนยันได้ (จะลองอีกครั้งเมื่อใช้งานจริง)", en:"Could not confirm yet (will retry when actually used)", my:"အတည်မပြုနိုင်သေးပါ (အသုံးပြုချိန်တွင် ထပ်စမ်းပါမည်)"},
+  bootAuthIssue: {
+    th:"ได้รับหน้าเข้าสู่ระบบของ Google แทนที่จะเป็นข้อมูล — ใน Apps Script ตรวจสอบว่า Deploy > Manage deployments > \"Who has access\" ตั้งเป็น \"Anyone\" (ไม่ใช่ \"Anyone with Google account\") แล้ว Deploy เป็นเวอร์ชันใหม่",
+    en:"Got a Google sign-in page instead of data — in Apps Script, check that Deploy > Manage deployments > \"Who has access\" is set to \"Anyone\" (not \"Anyone with Google account\"), then deploy a new version.",
+    my:"ဒေတာအစား Google ဝင်ရောက်ရေးစာမျက်နှာ ရရှိခဲ့သည် — Apps Script တွင် Deploy > Manage deployments > \"Who has access\" ကို \"Anyone\" ဟု သတ်မှတ်ထားခြင်း ရှိမရှိ စစ်ဆေးပြီး version အသစ် Deploy ပါ။"
+  },
   bootMissingUrl: {th:"ไม่พบ URL — กรุณาวาง Apps Script Web App URL ในเซลล์ B1 ของแท็บ Configs", en:"No URL found — please paste your Apps Script Web App URL into cell B1 of the Configs tab.", my:"URL မတွေ့ပါ — Configs tab ၏ B1 တွင် Apps Script Web App URL ကို ကူးထည့်ပါ။"},
   bootDefaultModeNotice: {th:"เชื่อมต่ออัตโนมัติไม่สำเร็จ ระบบกำลังทำงานในโหมดพื้นฐาน คุณสมบัติบางอย่างอาจใช้ไม่ได้จนกว่าจะเชื่อมต่อสำเร็จ", en:"Automatic connection failed — running in default mode. Some features won't work until this is connected.", my:"အလိုအလျောက်ချိတ်ဆက်မှု မအောင်မြင်ပါ — အခြေခံမုဒ်ဖြင့် လုပ်ဆောင်နေသည်။ ချိတ်ဆက်မှုမအောင်မြင်မချင်း လုပ်ဆောင်ချက်အချို့ အလုပ်မလုပ်ပါ။"},
   setupNeededLabel: {th:"ต้องตั้งค่า:", en:"Setup needed:", my:"တပ်ဆင်မှု လိုအပ်သည်-"}
@@ -1071,7 +1081,17 @@ async function api(action, payload){
     method: "POST",
     body: JSON.stringify(body)
   });
-  const data = await res.json();
+  // Read as text first (not res.json()) so a non-JSON response — most
+  // often an HTML sign-in or error page from Google, not our backend's
+  // own JSON error replies — gives a clear, actionable message instead
+  // of a confusing "Unexpected token '<'" parse error.
+  const rawText = await res.text();
+  let data;
+  try{
+    data = JSON.parse(rawText);
+  }catch(parseErr){
+    throw new Error(T("errBadResponse"));
+  }
   if(!data.success){
     throw new Error(data.message || T("errServer"));
   }
@@ -1970,12 +1990,22 @@ async function runBootSequence(){
   applyLogos(cfg.companyLogoRaw, cfg.programLogoRaw);
 
   // Step 6 — a quick, non-blocking check that the backend itself
-  // responds. Its result is purely informational: whether this
-  // succeeds or fails, the app proceeds either way.
+  // responds with real data (not, say, a Google sign-in page, which is
+  // what a misconfigured "Who has access" deployment setting returns).
+  // Its result is purely informational: whether this succeeds or fails,
+  // the app proceeds either way — this is just an early warning so a
+  // deployment problem is visible here instead of surfacing later as a
+  // confusing "Unexpected token '<'" error when someone tries to log in.
   renderBootStep("verify", "running");
   try{
-    await withTimeout(fetch(CONFIG.APPS_SCRIPT_URL, {method:"GET"}), 6000, T("bootTimeout"));
-    renderBootStep("verify", "success", `<span>${escapeHtml(T("bootReachable"))}</span>`);
+    const verifyRes = await withTimeout(fetch(CONFIG.APPS_SCRIPT_URL, {method:"GET"}), 6000, T("bootTimeout"));
+    const verifyText = await verifyRes.text();
+    const looksLikeSignInPage = /^\s*<!DOCTYPE/i.test(verifyText) || verifyText.indexOf("accounts.google.com") !== -1;
+    if(looksLikeSignInPage){
+      renderBootStep("verify", "error", `<span>${escapeHtml(T("bootAuthIssue"))}</span>`);
+    } else {
+      renderBootStep("verify", "success", `<span>${escapeHtml(T("bootReachable"))}</span>`);
+    }
   }catch(err){
     renderBootStep("verify", "error", `<span>${escapeHtml(T("bootUnreachable"))}</span>`);
   }

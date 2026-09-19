@@ -328,7 +328,7 @@ input:focus, textarea:focus, select:focus{
       <div style="margin-top:8px;"><a href="#" id="linkRetryBoot" data-i18n="btnRetry">Try again</a></div>
     </div>
     <img id="programLogoImg" class="program-logo-img" alt="Fin for Good">
-    <div class="big-icon" id="programLogoFallback">🪙</div>
+    <div class="big-icon" id="programLogoFallback">🤝</div>
     <h1 data-i18n="welcomeTitle">Fin for Good — Application Form</h1>
     <p data-i18n="welcomeDesc">A support programme for community-led enterprises, social enterprises and local small businesses — bookkeeping, financial planning, training and small business grants.</p>
     <div style="display:flex; flex-direction:column; gap:10px; margin-top:18px;">
@@ -725,14 +725,22 @@ const FORM_SCHEMA = [
       label:L("กิจการของท่านเชื่อมโยงกับ SDGs ข้อใดบ้าง","Which Sustainable Development Goals (SDGs) does your work contribute to?","သင့်လုပ်ငန်းသည် မည်သည့် SDGs များနှင့် ဆက်စပ်သနည်း။"),
       options:[
         L("SDG 1 — ขจัดความยากจน","SDG 1 — No Poverty","SDG 1 — ဆင်းရဲနွမ်းပါးမှု ပပျောက်ရေး"),
+        L("SDG 2 — ขจัดความหิวโหย","SDG 2 — Zero Hunger","SDG 2 — ဗိုက်ငတ်မွတ်သိပ်မှု ပပျောက်ရေး"),
         L("SDG 3 — สุขภาพและความเป็นอยู่ที่ดี","SDG 3 — Good Health and Well-being","SDG 3 — ကျန်းမာရေးနှင့် သာယာဝပြောရေး"),
         L("SDG 4 — การศึกษาที่มีคุณภาพ","SDG 4 — Quality Education","SDG 4 — အရည်အသွေးရှိ ပညာရေး"),
         L("SDG 5 — ความเท่าเทียมทางเพศ","SDG 5 — Gender Equality","SDG 5 — ကျား/မ တန်းတူညီမျှရေး"),
+        L("SDG 6 — น้ำสะอาดและสุขาภิบาล","SDG 6 — Clean Water and Sanitation","SDG 6 — သန့်ရှင်းသောရေနှင့် သန့်ရှင်းမှု"),
+        L("SDG 7 — พลังงานสะอาดที่ทุกคนเข้าถึงได้","SDG 7 — Affordable and Clean Energy","SDG 7 — စျေးနှုန်းသင့်၍ သန့်ရှင်းသောစွမ်းအင်"),
         L("SDG 8 — งานที่มีคุณค่าและการเติบโตทางเศรษฐกิจ","SDG 8 — Decent Work and Economic Growth","SDG 8 — သင့်တင့်လျောက်ပတ်သော အလုပ်အကိုင်"),
+        L("SDG 9 — อุตสาหกรรม นวัตกรรม และโครงสร้างพื้นฐาน","SDG 9 — Industry, Innovation and Infrastructure","SDG 9 — စက်မှုလုပ်ငန်း၊ ဆန်းသစ်တီထွင်မှု"),
         L("SDG 10 — ลดความเหลื่อมล้ำ","SDG 10 — Reduced Inequalities","SDG 10 — မညီမျှမှုများ လျှော့ချရေး"),
         L("SDG 11 — เมืองและชุมชนที่ยั่งยืน","SDG 11 — Sustainable Cities and Communities","SDG 11 — ရေရှည်တည်တံ့သော မြို့များ"),
         L("SDG 12 — การผลิตและบริโภคอย่างรับผิดชอบ","SDG 12 — Responsible Consumption and Production","SDG 12 — တာဝန်ယူမှုရှိသော ထုတ်လုပ်မှု"),
-        L("SDG 13 — การรับมือการเปลี่ยนแปลงสภาพภูมิอากาศ","SDG 13 — Climate Action","SDG 13 — ရာသီဥတုပြောင်းလဲမှု")
+        L("SDG 13 — การรับมือการเปลี่ยนแปลงสภาพภูมิอากาศ","SDG 13 — Climate Action","SDG 13 — ရာသီဥတုပြောင်းလဲမှု"),
+        L("SDG 14 — การใช้ประโยชน์จากมหาสมุทรและทรัพยากรทางทะเล","SDG 14 — Life Below Water","SDG 14 — ရေအောက်ဘဝ"),
+        L("SDG 15 — การใช้ประโยชน์จากระบบนิเวศทางบก","SDG 15 — Life on Land","SDG 15 — ကုန်းမြေဘဝ"),
+        L("SDG 16 — สังคมสงบสุข ยุติธรรม ไม่แบ่งแยก","SDG 16 — Peace, Justice and Strong Institutions","SDG 16 — ငြိမ်းချမ်းရေးနှင့် တရားမျှတမှု"),
+        L("SDG 17 — ความร่วมมือเพื่อการพัฒนาที่ยั่งยืน","SDG 17 — Partnerships for the Goals","SDG 17 — ပန်းတိုင်များအတွက် မိတ်ဖက်ဆက်ဆံရေး")
       ]},
     {id:"sdgExplain", type:"textarea",
       label:L("กรุณาอธิบายความเชื่อมโยง","Please explain the connection","ဆက်စပ်မှုကို ရှင်းပြပါ")}

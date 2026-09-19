@@ -239,9 +239,55 @@ input:focus, textarea:focus, select:focus{
 }
 .part-dot.current{background:var(--brand); color:#fff; font-weight:700;}
 .part-dot.done{background:var(--brand-dark); color:#fff;}
+
+/* ---------- Boot / connection diagnostics screen ---------- */
+.boot-progress-line{
+  position:fixed; top:0; left:0; height:3px; width:0%; background:var(--brand);
+  z-index:200; transition:width .35s ease;
+}
+.boot-step{
+  display:flex; gap:12px; align-items:flex-start; padding:12px 0; border-top:1px solid var(--border);
+}
+.boot-step:first-child{border-top:none;}
+.boot-step-icon{
+  width:24px; height:24px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center;
+  font-size:13px; margin-top:1px; background:var(--brand-light); color:var(--brand-dark);
+}
+.boot-step-icon.pending{background:#f0f1f2; color:var(--ink-soft);}
+.boot-step-icon.running{background:var(--brand-light); color:var(--brand);}
+.boot-step-icon.success{background:#e3f5e9; color:var(--success);}
+.boot-step-icon.error{background:var(--danger-bg); color:var(--danger);}
+.boot-step-icon .spinner{width:12px; height:12px; border-width:2px; margin:0;}
+.boot-step-body{flex:1; min-width:0;}
+.boot-step-title{font-weight:600; font-size:14px;}
+.boot-step-detail{font-size:13px; color:var(--ink-soft); margin-top:3px; word-break:break-all;}
+.boot-step-detail.is-error{color:var(--danger);}
+.boot-step-detail img{max-height:56px; max-width:160px; border-radius:6px; margin-top:6px; display:block; border:1px solid var(--border); object-fit:contain; background:#fff;}
 </style>
 </head>
 <body>
+
+<!-- Slim progress line pinned to the very top of the viewport, used only
+     during the startup connection sequence (see [10] BOOTSTRAP). -->
+<div id="bootProgressLine" class="boot-progress-line"></div>
+
+<!-- ===================== BOOT / CONNECTION DIAGNOSTICS ===================== -->
+<!-- Shown first, every time the page loads. Walks through connecting to
+     the Google Sheet step by step, showing exactly what was read from
+     each cell (and a live image preview for the two logo links) so
+     problems are easy to see and explain, instead of a single generic
+     "Failed to fetch" message. -->
+<div id="screenBoot" class="wrap">
+  <div class="card auth-card" style="text-align:left;">
+    <h2 data-i18n="bootTitle">Connecting…</h2>
+    <p class="step-desc" data-i18n="bootDesc">Reading setup information from the Google Sheet.</p>
+    <div id="bootStepsList"></div>
+    <div id="bootActions" class="hidden" style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;">
+      <button type="button" class="btn btn-secondary" id="btnBootRetry" data-i18n="btnRetry">Try again</button>
+      <button type="button" class="btn btn-primary" id="btnBootContinue" data-i18n="btnContinueAnyway">Continue anyway</button>
+    </div>
+  </div>
+</div>
 
 <!-- Loading overlay, shown during any server call -->
 <div id="loadingOverlay" class="hidden">
@@ -275,8 +321,12 @@ input:focus, textarea:focus, select:focus{
 </div>
 
 <!-- ===================== AUTH: WELCOME / CHOOSE ===================== -->
-<div id="screenWelcome" class="wrap">
+<div id="screenWelcome" class="wrap hidden">
   <div class="card auth-card" style="text-align:center;">
+    <div id="welcomeDefaultModeBanner" class="alert alert-error hidden" style="text-align:left;">
+      <strong data-i18n="setupNeededLabel">Setup needed:</strong> <span data-i18n="bootDefaultModeNotice">Automatic connection failed — running in default mode. Some features won't work until this is connected.</span>
+      <div style="margin-top:8px;"><a href="#" id="linkRetryBoot" data-i18n="btnRetry">Try again</a></div>
+    </div>
     <img id="programLogoImg" class="program-logo-img" alt="Fin for Good">
     <div class="big-icon" id="programLogoFallback">🪙</div>
     <h1 data-i18n="welcomeTitle">Fin for Good — Application Form</h1>
@@ -433,7 +483,7 @@ const CONFIG = {
   // in the Sheet above — see loadRemoteConfig() in section [5] below.
   // This way, redeploying the backend (which gives you a new Web App
   // URL) only ever requires updating one Sheet cell, never this file.
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzOKZpDri6el4buPZXvaWSQ1sN_xgNMiKqx67e8v9r51-I78TJPJ33OXWvcx9dngwxOiQ/exec"
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxfND_EZLGF4bD1NHgpCgeN7vqcC2GBirihr0GJ8LVIOW6CPFwOVWwRWrnYy99RXL6DPQ/exec"
 };
 
 /* ============================================================================
@@ -505,7 +555,27 @@ const STRINGS = {
   of: {th:"จาก", en:"of", my:"/"},
   restoredDraft: {th:"กู้คืนแบบร่างที่บันทึกไว้เรียบร้อยแล้ว", en:"Your saved draft has been restored.", my:"သိမ်းထားသော မူကြမ်းကို ပြန်လည်ရယူပြီးပါပြီ။"},
   confirmLogout: {th:"ต้องการออกจากระบบหรือไม่? ข้อมูลของท่านถูกบันทึกไว้แล้ว", en:"Log out? Your saved data will still be here next time.", my:"ထွက်မလား? သင့်အချက်အလက်များကို သိမ်းထားပါသည်။"},
-  submitConfirm: {th:"ยืนยันการส่ง: เมื่อส่งแล้วจะไม่สามารถแก้ไขข้อมูลได้อีก ต้องการส่งใบสมัครนี้หรือไม่?", en:"Confirm submission: once submitted this application cannot be edited. Submit now?", my:"အတည်ပြုပါ- တင်သွင်းပြီးပါက ပြန်ပြင်၍မရတော့ပါ။ ယခု တင်သွင်းမလား?"}
+  submitConfirm: {th:"ยืนยันการส่ง: เมื่อส่งแล้วจะไม่สามารถแก้ไขข้อมูลได้อีก ต้องการส่งใบสมัครนี้หรือไม่?", en:"Confirm submission: once submitted this application cannot be edited. Submit now?", my:"အတည်ပြုပါ- တင်သွင်းပြီးပါက ပြန်ပြင်၍မရတော့ပါ။ ယခု တင်သွင်းမလား?"},
+
+  bootTitle: {th:"กำลังเชื่อมต่อ…", en:"Connecting…", my:"ချိတ်ဆက်နေသည်…"},
+  bootDesc: {th:"กำลังอ่านข้อมูลการตั้งค่าจาก Google Sheet", en:"Reading setup information from the Google Sheet.", my:"Google Sheet မှ တပ်ဆင်မှုအချက်အလက်များ ဖတ်နေသည်။"},
+  btnRetry: {th:"ลองใหม่อีกครั้ง", en:"Try again", my:"ထပ်စမ်းကြည့်ပါ"},
+  btnContinueAnyway: {th:"ดำเนินการต่อแบบพื้นฐาน", en:"Continue anyway", my:"ဆက်လက်လုပ်ဆောင်ပါ"},
+  bootStepConnect: {th:"เชื่อมต่อกับ Google Sheet", en:"Connecting to the Google Sheet", my:"Google Sheet သို့ ချိတ်ဆက်ခြင်း"},
+  bootStepAppsUrl: {th:"อ่านค่า APPS_SCRIPT_URL (เซลล์ B1)", en:"Reading APPS_SCRIPT_URL (cell B1)", my:"APPS_SCRIPT_URL ဖတ်ခြင်း (B1)"},
+  bootStepSheetId: {th:"อ่านค่า SHEET_ID (เซลล์ B2, ใช้เพื่ออ้างอิงเท่านั้น)", en:"Reading SHEET_ID (cell B2, reference only)", my:"SHEET_ID ဖတ်ခြင်း (B2, ကိုးကားရန်သာ)"},
+  bootStepCompanyLogo: {th:"อ่านค่า COMPANY_LOGO (เซลล์ B3)", en:"Reading COMPANY_LOGO (cell B3)", my:"COMPANY_LOGO ဖတ်ခြင်း (B3)"},
+  bootStepProgramLogo: {th:"อ่านค่า PROGRAM_LOGO (เซลล์ B4)", en:"Reading PROGRAM_LOGO (cell B4)", my:"PROGRAM_LOGO ဖတ်ခြင်း (B4)"},
+  bootStepVerify: {th:"ตรวจสอบการเชื่อมต่อกับ Apps Script", en:"Verifying the Apps Script connection", my:"Apps Script ချိတ်ဆက်မှု စစ်ဆေးခြင်း"},
+  bootEmptyValue: {th:"(ว่างเปล่า)", en:"(empty)", my:"(ဗလာ)"},
+  bootConnected: {th:"เชื่อมต่อสำเร็จ", en:"Connected", my:"ချိတ်ဆက်ပြီးပါပြီ"},
+  bootTimeout: {th:"หมดเวลาการเชื่อมต่อ", en:"Timed out waiting for a response.", my:"တုံ့ပြန်မှုစောင့်ဆိုင်းချိန် ကုန်သွားသည်။"},
+  bootFetchFailed: {th:"ไม่สามารถเชื่อมต่อได้ (Failed to fetch) — โปรดตรวจสอบว่าได้แชร์ Google Sheet เป็น \"ทุกคนที่มีลิงก์ดูได้\"", en:"Could not connect (Failed to fetch). Make sure the Google Sheet is shared as \"Anyone with the link can view.\"", my:"ချိတ်ဆက်၍မရပါ (Failed to fetch)။ Google Sheet ကို \"Anyone with the link can view\" ဟု မျှဝေထားကြောင်း သေချာပါစေ။"},
+  bootReachable: {th:"เชื่อมต่อ backend ได้", en:"Backend reachable", my:"backend ချိတ်ဆက်နိုင်သည်"},
+  bootUnreachable: {th:"ยังไม่สามารถยืนยันได้ (จะลองอีกครั้งเมื่อใช้งานจริง)", en:"Could not confirm yet (will retry when actually used)", my:"အတည်မပြုနိုင်သေးပါ (အသုံးပြုချိန်တွင် ထပ်စမ်းပါမည်)"},
+  bootMissingUrl: {th:"ไม่พบ URL — กรุณาวาง Apps Script Web App URL ในเซลล์ B1 ของแท็บ Configs", en:"No URL found — please paste your Apps Script Web App URL into cell B1 of the Configs tab.", my:"URL မတွေ့ပါ — Configs tab ၏ B1 တွင် Apps Script Web App URL ကို ကူးထည့်ပါ။"},
+  bootDefaultModeNotice: {th:"เชื่อมต่ออัตโนมัติไม่สำเร็จ ระบบกำลังทำงานในโหมดพื้นฐาน คุณสมบัติบางอย่างอาจใช้ไม่ได้จนกว่าจะเชื่อมต่อสำเร็จ", en:"Automatic connection failed — running in default mode. Some features won't work until this is connected.", my:"အလိုအလျောက်ချိတ်ဆက်မှု မအောင်မြင်ပါ — အခြေခံမုဒ်ဖြင့် လုပ်ဆောင်နေသည်။ ချိတ်ဆက်မှုမအောင်မြင်မချင်း လုပ်ဆောင်ချက်အချို့ အလုပ်မလုပ်ပါ။"},
+  setupNeededLabel: {th:"ต้องตั้งค่า:", en:"Setup needed:", my:"တပ်ဆင်မှု လိုအပ်သည်-"}
 };
 
 /* ============================================================================
@@ -1016,35 +1086,67 @@ async function api(action, payload){
    discover, we can't ask Apps Script for it — so this one read has to
    bypass Apps Script and talk to Google Sheets directly.
 
+   This loads the data via a <script> tag (the classic "JSONP" pattern)
+   rather than fetch(). Google's gviz endpoint does not send the
+   Access-Control-Allow-Origin header that fetch()/XHR require for
+   cross-origin requests, which is what causes the browser to report a
+   plain, unhelpful "Failed to fetch" — loading it as a script sidesteps
+   that restriction entirely, the same way loading Google Fonts or any
+   other cross-origin <script src="..."> does.
+
    Requirement: the Google Sheet must be shared as "Anyone with the link
    can view" (Share > General access) for this to work for visitors who
    aren't logged into the same Google account that owns the Sheet. This
    is a read-only public link — it does not let anyone edit the Sheet.
 
    Reads:
-     Configs!B1  → the Apps Script Web App URL (A1 is just the label "APPS_SCRIPT_URL")
+     Configs!B1  → the Apps Script Web App URL
+     Configs!B2  → SHEET_ID (shown for reference only, not otherwise used)
      Configs!B3  → COMPANY_LOGO (a Google Drive share link)
      Configs!B4  → PROGRAM_LOGO (a Google Drive share link)
-   (Row 2, "SHEET_ID", is informational only — this file can't read its
-   own Sheet ID from the Sheet, since it needs the Sheet ID just to get
-   this far. CONFIG.SHEET_ID above is what actually controls that.)
    ---------------------------------------------------------------------- */
+
+/** Rejects with a timeout error if `promise` doesn't settle within `ms`
+ * milliseconds. Used everywhere in the boot sequence so a silent, hung
+ * network request can never leave the user stuck on a spinner forever. */
+function withTimeout(promise, ms, timeoutMessage){
+  let timer;
+  const timeout = new Promise((_, reject)=>{
+    timer = setTimeout(()=> reject(new Error(timeoutMessage || T("bootTimeout"))), ms);
+  });
+  return Promise.race([promise, timeout]).finally(()=> clearTimeout(timer));
+}
+
+/** Loads the Configs sheet via a JSONP <script> tag. Resolves with the
+ * parsed gviz response object, or rejects on a script-load error. */
+function loadConfigViaJsonp(sheetId){
+  return new Promise((resolve, reject)=>{
+    const cbName = "gvizCb_" + Math.random().toString(36).slice(2);
+    let settled = false;
+    const script = document.createElement("script");
+    const cleanup = ()=>{
+      delete window[cbName];
+      if(script.parentNode) script.parentNode.removeChild(script);
+    };
+    window[cbName] = (resp)=>{
+      if(settled) return;
+      settled = true;
+      cleanup();
+      resolve(resp);
+    };
+    script.onerror = ()=>{
+      if(settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(T("bootFetchFailed")));
+    };
+    script.src = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler:${cbName}&sheet=Configs`;
+    document.head.appendChild(script);
+  });
+}
+
 async function loadRemoteConfig(){
-  const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:json&sheet=Configs`;
-  const res = await fetch(url);
-  if(!res.ok){
-    throw new Error("Could not read the Configs sheet (HTTP " + res.status + "). Make sure the Google Sheet is shared as \"Anyone with the link can view.\"");
-  }
-  const text = await res.text();
-  // The gviz endpoint wraps its JSON in a JS function call, e.g.
-  // "/*O_o*/\ngoogle.visualization.Query.setResponse({...});" — pull out
-  // just the {...} part.
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if(start === -1 || end === -1){
-    throw new Error("Unexpected response while reading the Configs sheet. Is the \"Configs\" tab present and the Sheet publicly viewable?");
-  }
-  const parsed = JSON.parse(text.substring(start, end + 1));
+  const parsed = await withTimeout(loadConfigViaJsonp(CONFIG.SHEET_ID), 10000, T("bootFetchFailed"));
   const rows = (parsed.table && parsed.table.rows) || [];
   const cell = (rowIdx, colIdx)=>{
     const row = rows[rowIdx];
@@ -1053,6 +1155,7 @@ async function loadRemoteConfig(){
   };
   return {
     appsScriptUrl: cell(0, 1), // B1
+    sheetIdRaw: cell(1, 1),    // B2 (reference only)
     companyLogoRaw: cell(2, 1), // B3
     programLogoRaw: cell(3, 1)  // B4
   };
@@ -1448,7 +1551,7 @@ function clearFieldError(id){ const el = document.getElementById("field_"+id); i
    [8] NAVIGATION — Next / Back / Save & continue later / Review / Submit.
    ============================================================================ */
 function showScreen(name){
-  ["Welcome","Register","Login","Form","Review","Success","Locked"].forEach(s=>{
+  ["Boot","Welcome","Register","Login","Form","Review","Success","Locked"].forEach(s=>{
     document.getElementById("screen"+s).classList.toggle("hidden", s!==name);
   });
 }
@@ -1725,34 +1828,198 @@ document.querySelectorAll(".lang-switch button").forEach(btn=>{
 });
 
 /* ============================================================================
-   [10] BOOTSTRAP — runs once when the page loads. First discovers the
-   Apps Script URL and logos from the Configs sheet (see loadRemoteConfig
-   in section [5]), then tries to resume a saved session automatically;
-   otherwise shows the welcome screen.
-   ============================================================================ */
-(async function bootstrap(){
-  applyStaticTranslations();
-  showLoading();
+   [10] BOOTSTRAP — runs once when the page loads.
 
-  try{
-    const cfg = await loadRemoteConfig();
-    if(!cfg.appsScriptUrl){
-      throw new Error("Cell B1 of the \"Configs\" tab is empty. Paste your Apps Script Web App URL there (see DEPLOYMENT_GUIDE.md).");
+   This walks through connecting to the Google Sheet one visible step at
+   a time (see the "screenBoot" markup near the top of <body> and the
+   .boot-step / .boot-progress-line CSS), so a connection problem shows
+   exactly which step failed and what raw value (if any) was read —
+   instead of a single unexplained "Failed to fetch".
+
+   Order of steps: connect to the Sheet → show APPS_SCRIPT_URL (B1) →
+   show SHEET_ID (B2, reference only) → show COMPANY_LOGO (B3, with an
+   image preview) → show PROGRAM_LOGO (B4, with an image preview) →
+   verify the Apps Script backend responds. Every network step has a
+   timeout, so a silent hang can never leave the user stuck here.
+
+   If the Sheet can't be reached, or APPS_SCRIPT_URL is empty, the app
+   does not get stuck: after a short countdown (or immediately, if the
+   user clicks "Continue anyway") it falls through to "default mode" —
+   the ordinary welcome screen, with a visible notice — rather than
+   blocking the page entirely. "Try again" re-runs this whole sequence.
+   ============================================================================ */
+
+function sleep(ms){ return new Promise(resolve=> setTimeout(resolve, ms)); }
+
+const BOOT_STEP_ORDER = ["connect","appsUrl","sheetId","companyLogo","programLogo","verify"];
+const BOOT_STEP_TITLE_KEY = {
+  connect: "bootStepConnect", appsUrl: "bootStepAppsUrl", sheetId: "bootStepSheetId",
+  companyLogo: "bootStepCompanyLogo", programLogo: "bootStepProgramLogo", verify: "bootStepVerify"
+};
+
+function bootStepIconHtml(status){
+  if(status === "running") return `<div class="spinner"></div>`;
+  if(status === "success") return "✓";
+  if(status === "error") return "✕";
+  return "•";
+}
+
+/** Creates (on first call) or updates (on later calls) one row in the
+ * boot diagnostics list. */
+function renderBootStep(id, status, detailHtml){
+  let row = document.getElementById("bootstep-" + id);
+  if(!row){
+    row = document.createElement("div");
+    row.className = "boot-step";
+    row.id = "bootstep-" + id;
+    row.innerHTML = `<div class="boot-step-icon"></div><div class="boot-step-body"><div class="boot-step-title"></div><div class="boot-step-detail"></div></div>`;
+    document.getElementById("bootStepsList").appendChild(row);
+  }
+  const iconEl = row.querySelector(".boot-step-icon");
+  iconEl.className = "boot-step-icon " + status;
+  iconEl.innerHTML = bootStepIconHtml(status);
+  row.querySelector(".boot-step-title").textContent = T(BOOT_STEP_TITLE_KEY[id]);
+  const detailEl = row.querySelector(".boot-step-detail");
+  detailEl.classList.toggle("is-error", status === "error");
+  detailEl.innerHTML = detailHtml || "";
+}
+
+function setBootProgress(doneCount){
+  const pct = Math.round((doneCount / BOOT_STEP_ORDER.length) * 100);
+  document.getElementById("bootProgressLine").style.width = pct + "%";
+}
+
+/** Builds the little "here's exactly what was in that cell" detail
+ * block used by every read step: the raw text, and — when asImage is
+ * set — a live thumbnail preview if the text resolves to an image. */
+function renderCellDetail(rawValue, opts){
+  opts = opts || {};
+  if(!rawValue){
+    return `<span>${escapeHtml(T("bootEmptyValue"))}</span>`;
+  }
+  let html = `<div>${escapeHtml(rawValue)}</div>`;
+  if(opts.asImage){
+    const imgUrl = driveImageUrl(rawValue, opts.width || 200);
+    if(imgUrl){
+      html += `<img src="${escapeAttr(imgUrl)}" alt="" onerror="this.remove()">`;
     }
-    CONFIG.APPS_SCRIPT_URL = cfg.appsScriptUrl;
-    applyLogos(cfg.companyLogoRaw, cfg.programLogoRaw);
+  }
+  return html;
+}
+
+/** The full step-by-step connection sequence. Safe to call again later
+ * (the "Try again" button does exactly that) — it just re-renders the
+ * same rows from scratch. */
+async function runBootSequence(){
+  document.getElementById("bootStepsList").innerHTML = "";
+  document.getElementById("bootActions").classList.add("hidden");
+  setBootProgress(0);
+
+  // Step 1 — connect to the Sheet and read the whole Configs tab in one go.
+  renderBootStep("connect", "running");
+  let cfg;
+  try{
+    cfg = await loadRemoteConfig();
+    renderBootStep("connect", "success", `<span>${escapeHtml(T("bootConnected"))}</span>`);
   }catch(err){
-    // Nothing else in the app can work without the Apps Script URL, so
-    // stop here and show a clear, actionable message instead of letting
-    // every subsequent action fail with a confusing network error.
-    hideLoading();
-    document.getElementById("screenWelcome").classList.remove("hidden");
-    document.querySelector("#screenWelcome .auth-card").insertAdjacentHTML("afterbegin",
-      `<div class="alert alert-error" style="text-align:left;">
-         <strong>Setup needed:</strong> ${escapeHtml(err.message)}
-       </div>`);
-    document.getElementById("goRegister").disabled = true;
-    document.getElementById("goLogin").disabled = true;
+    renderBootStep("connect", "error", `<span>${escapeHtml(err.message)}</span>`);
+    setBootProgress(1);
+    enterDefaultModeWithRetry();
+    return;
+  }
+  setBootProgress(1);
+  await sleep(150);
+
+  // Steps 2-5 — reveal each cell that was read, one at a time.
+  renderBootStep("appsUrl", "running");
+  await sleep(120);
+  if(cfg.appsScriptUrl){
+    renderBootStep("appsUrl", "success", renderCellDetail(cfg.appsScriptUrl));
+  } else {
+    renderBootStep("appsUrl", "error", `<span>${escapeHtml(T("bootMissingUrl"))}</span>`);
+  }
+  setBootProgress(2);
+  await sleep(150);
+
+  renderBootStep("sheetId", "running");
+  await sleep(120);
+  renderBootStep("sheetId", "success", renderCellDetail(cfg.sheetIdRaw));
+  setBootProgress(3);
+  await sleep(150);
+
+  renderBootStep("companyLogo", "running");
+  await sleep(120);
+  renderBootStep("companyLogo", "success", renderCellDetail(cfg.companyLogoRaw, {asImage:true, width:120}));
+  setBootProgress(4);
+  await sleep(150);
+
+  renderBootStep("programLogo", "running");
+  await sleep(120);
+  renderBootStep("programLogo", "success", renderCellDetail(cfg.programLogoRaw, {asImage:true, width:160}));
+  setBootProgress(5);
+  await sleep(150);
+
+  // Without APPS_SCRIPT_URL nothing past this point can work — fall
+  // back to default mode the same way a connection failure does.
+  if(!cfg.appsScriptUrl){
+    enterDefaultModeWithRetry();
+    return;
+  }
+
+  CONFIG.APPS_SCRIPT_URL = cfg.appsScriptUrl;
+  applyLogos(cfg.companyLogoRaw, cfg.programLogoRaw);
+
+  // Step 6 — a quick, non-blocking check that the backend itself
+  // responds. Its result is purely informational: whether this
+  // succeeds or fails, the app proceeds either way.
+  renderBootStep("verify", "running");
+  try{
+    await withTimeout(fetch(CONFIG.APPS_SCRIPT_URL, {method:"GET"}), 6000, T("bootTimeout"));
+    renderBootStep("verify", "success", `<span>${escapeHtml(T("bootReachable"))}</span>`);
+  }catch(err){
+    renderBootStep("verify", "error", `<span>${escapeHtml(T("bootUnreachable"))}</span>`);
+  }
+  setBootProgress(6);
+  await sleep(300);
+
+  await proceedPastBoot();
+}
+
+/** Shown when the Sheet couldn't be reached, or APPS_SCRIPT_URL is
+ * empty: offers "Try again" / "Continue anyway", and auto-continues in
+ * default mode after a short countdown so the app is never stuck. */
+function enterDefaultModeWithRetry(){
+  const actions = document.getElementById("bootActions");
+  const continueBtn = document.getElementById("btnBootContinue");
+  const retryBtn = document.getElementById("btnBootRetry");
+  actions.classList.remove("hidden");
+
+  const baseLabel = T("btnContinueAnyway");
+  let secondsLeft = 6;
+  continueBtn.textContent = `${baseLabel} (${secondsLeft})`;
+
+  const timer = setInterval(()=>{
+    secondsLeft--;
+    if(secondsLeft <= 0){
+      clearInterval(timer);
+      proceedPastBoot();
+      return;
+    }
+    continueBtn.textContent = `${baseLabel} (${secondsLeft})`;
+  }, 1000);
+
+  retryBtn.onclick = ()=>{ clearInterval(timer); runBootSequence(); };
+  continueBtn.onclick = ()=>{ clearInterval(timer); proceedPastBoot(); };
+}
+
+/** Leaves the boot screen: either into "default mode" (welcome screen,
+ * with a visible notice, if APPS_SCRIPT_URL never resolved) or into the
+ * normal session-restore flow. */
+async function proceedPastBoot(){
+  if(!CONFIG.APPS_SCRIPT_URL){
+    showScreen("Welcome");
+    const banner = document.getElementById("welcomeDefaultModeBanner");
+    if(banner) banner.classList.remove("hidden");
     return;
   }
 
@@ -1762,6 +2029,7 @@ document.querySelectorAll(".lang-switch button").forEach(btn=>{
     state.applicationId = saved.applicationId;
     updateUserChip();
     try{
+      showLoading();
       const check = await api("checkSession", {});
       state.user.name = check.name; state.user.email = check.email;
       updateUserChip();
@@ -1776,10 +2044,19 @@ document.querySelectorAll(".lang-switch button").forEach(btn=>{
       hideLoading();
     }
   } else {
-    hideLoading();
     showScreen("Welcome");
   }
-})();
+}
+
+document.getElementById("linkRetryBoot").onclick = (e)=>{
+  e.preventDefault();
+  document.getElementById("welcomeDefaultModeBanner").classList.add("hidden");
+  showScreen("Boot");
+  runBootSequence();
+};
+
+applyStaticTranslations();
+runBootSequence();
 </script>
 </body>
 </html>
